@@ -18,6 +18,15 @@
 > coordinate through natural language to guide a builder agent toward the correct 
 > configuration — a task no single agent can solve alone.
 
+## Supported Models
+
+**Frontier (API):** GPT-4o, GPT-4o-Mini, GPT-4.1-Mini, Claude-Sonnet-4.6, 
+Gemini-2.5-Flash, Gemini-3-Flash, Gemini-3.1-Flash-Lite
+
+**Open-weight (local):** Qwen-2.5 7B/14B/32B/72B, Llama-3-8B, Mistral-7B, 
+Gemma-2-9B, DeepSeek-V2-Lite
+
+
 ## Overview
 
 CRAFT evaluates a fundamental question: does stronger individual reasoning 
@@ -118,14 +127,7 @@ Validates moves against physical stacking constraints, updates board state,
 and logs per-turn progress metrics. Returns error messages on failure that 
 feed back into the conversation history.
 
-## Supported Models
-
-**Frontier (API):** GPT-4o, GPT-4o-Mini, GPT-4.1-Mini, Claude-Sonnet-4.6, 
-Gemini-2.5-Flash, Gemini-3-Flash, Gemini-3.1-Flash-Lite
-
-**Open-weight (local):** Qwen-2.5 7B/14B/32B/72B, Llama-3-8B, Mistral-7B, 
-Gemma-2-9B, DeepSeek-V2-Lite
-
+ 
 ## Installation
 ```bash
 git clone https://github.com/csu-signal/CRAFT
