@@ -1,14 +1,34 @@
 # CRAFT: Collaborative Reasoning Agents For Construction Tasks
 
+<div align="center">
+
+### 🏆 Leaderboard is live! Bring Your Own Director and Build!
+
+**[→ huggingface.co/spaces/Abhijnan/craft-leaderboard](https://huggingface.co/spaces/Abhijnan/craft-leaderboard)**
+
+[![Leaderboard](https://img.shields.io/badge/🏆%20Leaderboard-Live-7c6af7?style=for-the-badge)](https://huggingface.co/spaces/Abhijnan/craft-leaderboard)
+[![arXiv](https://img.shields.io/badge/arXiv-2603.25268-b31b1b?style=for-the-badge)](https://arxiv.org/abs/2603.25268)
+[![Dataset](https://img.shields.io/badge/🤗%20Dataset-HuggingFace-orange?style=for-the-badge)](https://huggingface.co/datasets/Abhijnan/craft-benchmark-lean)
+
+<img src="leaderboard_files/craft_leaderboard_1.png" width="90%"/>
+
+<table width="90%">
+<tr>
+<td width="50%"><img src="leaderboard_files/craft_structure_page.png" width="100%"/></td>
+<td width="50%"><img src="leaderboard_files/craft_tax.png" width="100%"/></td>
+</tr>
+<tr>
+<td width="50%"><img src="leaderboard_files/craft_teamscore.png" width="100%"/></td>
+<td width="50%"><img src="leaderboard_files/craft_2.png" width="100%"/></td>
+</tr>
+</table>
+
+</div>
+
+---
+
 > **Official repository** for the paper [CRAFT: Grounded Multi-Agent Coordination Under Partial Information](https://arxiv.org/pdf/2603.25268) (2026).
-
-<p align="center">
-  <img src="data/craft_director_views.png" alt="CRAFT Director Views" width="90%"/>
-</p>
-
-<p align="center">
-  <img src="data/collab_reasoning_agents_craft.png" alt="CRAFT" width="90%"/>
-</p>
+ 
  
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)]()
 
