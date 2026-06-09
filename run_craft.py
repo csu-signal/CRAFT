@@ -572,11 +572,11 @@ if __name__ == "__main__":
     parser.add_argument("--mode",           type=str, default="api",
                         choices=["api", "local"],
                         help="Director mode: 'api' for frontier models, 'local' for open-weight")
-    parser.add_argument("--director",       type=str, default=None,
+    parser.add_argument("--director",       type=str, default="gemini-2.5-flash",
                         help="Specific director model to run (api: model name, local: key from LOCAL_MODELS)")
-    parser.add_argument("--builder",        type=str, default="gpt-4o-mini",
+    parser.add_argument("--builder",        type=str, default="gemini-2.5-flash",
                         help="Builder model name")
-    parser.add_argument("--dataset",        type=str, default="data/structures_dataset_20.json",
+    parser.add_argument("--dataset",        type=str, default="CRAFT/data/structures_dataset_20.json",
                         help="Path to structures dataset JSON")
     parser.add_argument("--output",         type=str, default=None,
                         help="Output directory (default: auto-generated from builder model)")
