@@ -31,10 +31,60 @@ from agents.builder_tools import simulate_move
 class BuilderAgent:
     """Builder agent that uses API calls"""
     
-    def __init__(self, api_key=None, model_name="gpt-4o-mini", oracle_moves=None):
-        self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
+    def __init__(self, api_key=None, model_name="gpt-4o-mini", oracle_moves=None, use_api=True, local_model=None):
         self.model_name = model_name
         self.oracle_moves = oracle_moves
+        self.use_api = use_api
+        self.local_model = local_model
+
+        if use_api:
+            #TODO other providers for the builder
+            # self.provider = self._get_provider(model_name)
+            # if self.provider == "anthropic":
+            #     import anthropic
+            #     self.client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
+            # elif self.provider == "gemini":
+            #     self.client = OpenAI(
+            #         api_key=os.getenv("GEMINI_API_KEY"),
+            #         base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+            #     )
+            # else:
+            self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
+            self.local_model = None
+            self.local_tokenizer = None
+        else:
+            self.provider = "local"
+            # Load local model (e.g., Qwen)
+            #self._load_local_model(local_model)
+    
+    # def _load_local_model(self, model_path):
+    #     """Load local model and tokenizer"""
+    #     print(f"Loading local model from {model_path}...")
+    #     if not HF_AVAILABLE: 
+    #         raise RuntimeError("transformers not installed")
+        
+    #     # Load tokenizer
+    #     self.local_tokenizer = AutoTokenizer.from_pretrained(
+    #         model_path,
+    #         trust_remote_code=True,
+    #         padding_side="left"
+    #     )
+        
+    #     # Set pad token if not present
+    #     # if self.local_tokenizer.pad_token is None:
+    #     #     self.local_tokenizer.pad_token = self.local_tokenizer.eos_token
+        
+    #     # Load model
+    #     self.local_model = AutoModelForCausalLM.from_pretrained(
+    #         model_path,
+    #         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+    #         device_map="auto", # will check auto first and then try device name explicitly
+    #         trust_remote_code=True,
+    #         low_cpu_mem_usage=True
+    #     )
+
+        
+    #print(f"Local model loaded successfully on {self.local_model.device}")
 
     def format_oracle_moves_for_prompt(self, moves):
         """
@@ -478,8 +528,15 @@ WORKFLOW:
 
     def generate_move(self, director_discussion, current_state, available_blocks, oracle_moves=None, check_prompt_tokens = False) -> Dict:
         """Generate builder move with improved parsing"""
+
+         # get tokenizer regardless of loading path
+        if hasattr(self.local_model, 'tokenizer'):
+            tokenizer = self.local_model.tokenizer
+        else:
+            tokenizer = self.local_tokenizer
+            
         try:
-            prompt = self.create_builder_prompt(director_discussion, current_state, available_blocks, oracle_moves=oracle_moves,  )
+            prompt = self.create_builder_prompt(director_discussion, current_state, available_blocks, oracle_moves=oracle_moves)
             if check_prompt_tokens: 
                 self.compute_builder_prompt_section_lengths(prompt)
  
@@ -500,17 +557,21 @@ WORKFLOW:
             )
 
             system_content = system_content_oracle if oracle_moves else system_content_base
-            # "You are a Builder. Respond with exactly one line in the specified format. No additional text or explanation. OLD block, slight change. 
-            completion = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_content},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,  # Lower temperature for more consistent formatting
-                max_tokens=250    # Shorter to discourage extra text
-            )
-            
+
+            if self.use_api:
+                # "You are a Builder. Respond with exactly one line in the specified format. No additional text or explanation. OLD block, slight change. 
+                completion = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1,  # Lower temperature for more consistent formatting
+                    max_tokens=250    # Shorter to discourage extra text
+                )
+            else:
+                completion = self._generate_with_local_model(prompt, system_content, tokenizer)
+                
             if completion and completion.choices:
                 response_text = completion.choices[0].message.content.strip()
                 
@@ -559,6 +620,120 @@ WORKFLOW:
     # else:
     #     simulated_moves.add(move_key)
     #     result = simulate_move(game_state, move)
+
+    def _generate_with_local_model(self, prompt, system_content, tokenizer) -> str:
+        if not self.local_model:
+            raise Exception("No local model loaded")
+        max_new_tokens = 400
+        # keep both references
+        outer_model = self.local_model  # MistralForCausalLM — has .generate
+        inner_model = self.local_model.model if hasattr(self.local_model, 'model') else self.local_model  # MistralModel — for class name check
+
+        model_class = type(inner_model).__name__.lower()
+        is_gemma   = 'gemma'   in model_class
+        is_mistral = 'mistral' in model_class
+        is_deepseek = 'deepseek' in model_class
+ 
+        print(f"DEBUG model_class: {model_class} | is_gemma: {is_gemma} | is_mistral: {is_mistral} | is_deepseek: {is_deepseek}")
+        
+        if is_deepseek:
+            # DeepSeek-V2 pipeline supports messages dict fine with its own chat template
+            # just need to strip system role and use user only
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+            print("DEBUG deepseek messages being sent:", json.dumps(messages[0]['content'][:200]))
+            self.compute_prompt_section_lengths(prompt, messages, tokenizer)
+            
+            try:
+                out = self.local_model(
+                    messages,
+                    max_new_tokens=max_new_tokens,
+                    do_sample=False,
+                    return_full_text=False,   # ← only return new tokens, not the prompt
+                )
+                print("DEBUG deepseek raw out:", out)
+                response = out[0]["generated_text"]
+                print(f"DEBUG deepseek response: {response[:200]}")
+                return response
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                raise
+
+        if is_gemma or is_mistral:
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+        else:
+            messages = [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": prompt}
+            ]
+
+      
+        # pipeline path — handle both return formats
+        if hasattr(self.local_model, 'task'):
+            self.compute_prompt_section_lengths(prompt, messages, tokenizer)
+
+            # Apply chat template manually 
+            # templated_text = tokenizer.apply_chat_template(
+            #     messages,
+            #     tokenize=False,
+            #     add_generation_prompt=True
+            # )
+            # print(f"DEBUG templated_text length: {len(templated_text)}")
+            # print("DEBUG: calling pipeline with pre-templated string...")
+
+
+            out = self.local_model(messages, max_new_tokens=max_new_tokens, do_sample=False, return_full_text=False)
+            print("DEBUG pipeline out:", out)
+            result = out[0]["generated_text"]
+            # return_full_text=False → plain string
+            # return_full_text=True (default) → list of message dicts
+            if isinstance(result, list):
+                response = result[-1]["content"]
+            else:
+                response = result
+            print(f"DEBUG pipeline response: {response[:200]}")
+            return response
+
+        # raw model path
+        else:
+            print("DEBUG: using raw model path")
+            try:
+                # apply_chat_template with tokenize=False → get string
+                # then encode separately → guaranteed tensor
+                templated_text = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+                print(f"DEBUG templated_text end: {templated_text[-200:]}")
+
+                input_ids = tokenizer.encode(
+                    templated_text,
+                    return_tensors="pt",
+                    add_special_tokens=False
+                ).to(outer_model.device)
+                print(f"DEBUG input_ids shape: {input_ids.shape} device: {input_ids.device}")
+
+                with torch.no_grad():
+                    out = outer_model.generate(
+                        input_ids,
+                        max_new_tokens=400,
+                        do_sample=False,
+                        pad_token_id=tokenizer.eos_token_id,
+                    )
+                new_tokens = out[0][input_ids.shape[-1]:]
+                
+                response = tokenizer.decode(new_tokens, skip_special_tokens=True)
+                print(f"model generate response: {response[:200]}")
+                return response
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                raise
 
         
     def generate_move_with_tools(
