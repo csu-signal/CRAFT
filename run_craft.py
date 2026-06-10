@@ -35,12 +35,13 @@ from agents.director_agent import DirectorAgent
 from agents.builder_agent import BuilderAgent
 from agents.oracle import enumerate_correct_actions
 import inspect
+import time
+import sys
 
 print("EnhancedGameState from:", inspect.getfile(EnhancedGameState))
 print("get_director_views sig:", inspect.signature(EnhancedGameState.get_director_views))
  
 print([m for m in dir(EnhancedGameState) if not m.startswith("_")])
-
 
 # ─────────────────────────────────────────
 # HELPERS
@@ -274,6 +275,8 @@ def run_single_game(
     num_oracle = None
     
 ):
+    requestCount = 0
+    start = time.time()
     target_structure    = structure_data['structure']
     target_spans        = structure_data['spans']          # already int keys
     # target_director_views = structure_data['director_views'] #possible inconsistency: use current live target views from game state:  target_director_views = get_director_views_fn(target_structure, spans=target_spans)
@@ -369,6 +372,18 @@ def run_single_game(
                     conversation_history=public_conversation,
                     available_blocks=game_state.available_blocks
                 )
+                requestCount += 1
+                
+                if(resp["internal_thinking"].__contains__("429")):
+                    end = time.time()
+                    length = end - start
+
+                    print("\n\n####################################")
+                    print(resp["internal_thinking"])
+                    print("Time: " + str(length))
+                    print("Requests: " + str(requestCount))
+                    print("####################################\n\n")
+                    sys.exit(1)
 
                 director_responses[did] = resp
                 conversation_history.append(f"{did}: {resp['public_message']}")
@@ -429,6 +444,7 @@ def run_single_game(
             cValues['Side Placement']="N/A"
             cValues['Overall Structure State']="N/A"
             cValues['Group Agreement']='N/A'
+            requestCount += 1 
 
             # ── Execute ───────────────────────────────────────
             if builder_move['action'] == 'clarify':
