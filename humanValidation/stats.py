@@ -6,7 +6,19 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import cohen_kappa_score
 from scipy import stats
-df = pd.read_csv('CRAFT/craftValidationOutputs.csv')
+df = pd.read_csv('/Users/hannahvanderhoeven/Documents/GitHub/CRAFT/humanValidation/craftValidationOutputs.csv')
+
+result = df[df['Question'] == 'MM5']
+result = result.groupby(['Key', "UserType"]).agg({
+    'ResponseScore': 'mean',
+})
+
+# 1. Reshape so 'human' and 'llm' are separate columns
+# (assuming 'df' is your current multi-indexed DataFrame/Series)
+df_unstacked = result.unstack(level=-1)
+diff = (df_unstacked[('ResponseScore', 'human')] - df_unstacked[('ResponseScore', 'llm')]).abs()
+mismatches = df_unstacked[diff > 0.333334]
+print(mismatches)
 
 judge = "PS"
 questions = []

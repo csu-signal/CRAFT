@@ -326,12 +326,12 @@ class TaskProgressTracker:
 # ── Config ────────────────────────────────────────────────────────────────────
 
 ROOT_DIR = Path(
-    "/home/hannah/CRAFT/CRAFT/craft_results/api/experiment1/gemini-3-flash-preview_gpt-5.4-mini"
-).parent
+    "/Users/hannahvanderhoeven/Documents/GitHub/LLM_Pragmatic_Analysis/data/craft_data/experiment1"
+)
 # "craft_gricean_simulations_open_weight_testing_20test_notools"  
 
 
-RUN_FILTER = 3
+#RUN_FILTER = 1
 N_TURNS = 20
 SAVE_PREFIX = "craft_metrics_by_model"
 
@@ -433,7 +433,7 @@ def recompute_metrics_from_logs(game: dict) -> dict:
     result.update(delta_result)
     return result
 
-def recompute_all_flat(root_dir: Path, run_filter: int):
+def recompute_all_flat(root_dir: Path):
     """
     Same recomputation as recompute_all but returns flat structure:
         data[model_label][metric] = list of series   (no category dimension)
@@ -480,8 +480,8 @@ def recompute_all_flat(root_dir: Path, run_filter: int):
 
         for fpath in sorted(model_dir.glob("*.json")):
             m = re.match(r"craft_structure_(\d+)_(\d+)\.json", fpath.name)
-            if not m or int(m.group(2)) != run_filter:
-                continue
+            # if not m or int(m.group(2)) != run_filter:
+            #     continue
 
             with open(fpath) as f:
                 d = json.load(f)
@@ -603,7 +603,7 @@ def build_struct_series(game):
     return struct_vals
 
 
-def discover_run_files_by_model(root_dir: Path, run_filter: int):
+def discover_run_files_by_model(root_dir: Path):
     """
     Returns:
         run_files_by_model: dict[model_label][struct_id] = json_path
@@ -628,13 +628,12 @@ def discover_run_files_by_model(root_dir: Path, run_filter: int):
                 groups[struct_id][run] = f
 
         run_files = {
-            sid: groups[sid][run_filter]
+            sid: groups[sid]
             for sid in groups
-            if run_filter in groups[sid]
         }
 
         if len(run_files) == 0:
-            print(f"Skipping {model_label:<28} : no run {run_filter} files found")
+            print(f"Skipping {model_label:<28}")
             continue
 
         run_files_by_model[model_label] = run_files
@@ -647,34 +646,36 @@ def discover_run_files_by_model(root_dir: Path, run_filter: int):
 
 def print_summary_tables(data, model_labels):
     print(f"\n{'=' * 90}")
-    print("RAW METRICS — turn-by-turn means (ALL structures pooled across models)")
+    print("RAW METRICS — turn-by-turn means (ALL structures per model)\n")
     print(f"{'=' * 90}")
-    for k in ALL_KEYS:
-        means, sems = compute_stats(data["ALL"][k])
-        print(f"\n{k}")
-        print(f"{'turn':>5}  {'mean':>8}  {'sem':>8}  {'n':>5}")
-        print("-" * 35)
-        for t in range(TOTAL_LEN):
-            n_obs = sum(1 for s in data["ALL"][k] if s[t] is not None)
-            m, se = means[t], sems[t]
-            ms = f"{m:.4f}" if not np.isnan(m) else "   n/a"
-            ss = f"{se:.4f}" if not np.isnan(se) else "   n/a"
-            print(f"{t:>5}  {ms:>8}  {ss:>8}  {n_obs:>5}")
+    for modelKey in data.keys():
+        print(f"\nModel Data: {modelKey}")
+        for k in ALL_KEYS:
+            means, sems = compute_stats(data[modelKey][k])
+            print(f"\n{k}")
+            print(f"{'turn':>5}  {'mean':>8}  {'sem':>8}  {'n':>5}")
+            print("-" * 35)
+            for t in range(TOTAL_LEN):
+                n_obs = sum(1 for s in data[modelKey][k] if s[t] is not None)
+                m, se = means[t], sems[t]
+                ms = f"{m:.4f}" if not np.isnan(m) else "   n/a"
+                ss = f"{se:.4f}" if not np.isnan(se) else "   n/a"
+                print(f"{t:>5}  {ms:>8}  {ss:>8}  {n_obs:>5}")
 
-    print(f"\n{'=' * 90}")
-    print("DELTA METRICS — gain from turn 1 baseline (ALL structures pooled across models)")
-    print(f"{'=' * 90}")
-    for dk in DELTA_KEYS:
-        means, sems = compute_stats(data["ALL"][dk])
-        print(f"\n{dk}")
-        print(f"{'turn':>5}  {'mean':>8}  {'sem':>8}  {'n':>5}")
-        print("-" * 35)
-        for t in range(1, TOTAL_LEN):
-            n_obs = sum(1 for s in data["ALL"][dk] if s[t] is not None)
-            m, se = means[t], sems[t]
-            ms = f"{m:.4f}" if not np.isnan(m) else "   n/a"
-            ss = f"{se:.4f}" if not np.isnan(se) else "   n/a"
-            print(f"{t:>5}  {ms:>8}  {ss:>8}  {n_obs:>5}")
+    # print(f"\n{'=' * 90}")
+    # print("DELTA METRICS — gain from turn 1 baseline (ALL structures pooled across models)")
+    # print(f"{'=' * 90}")
+    # for dk in DELTA_KEYS:
+    #     means, sems = compute_stats(data["ALL"][dk])
+    #     print(f"\n{dk}")
+    #     print(f"{'turn':>5}  {'mean':>8}  {'sem':>8}  {'n':>5}")
+    #     print("-" * 35)
+    #     for t in range(1, TOTAL_LEN):
+    #         n_obs = sum(1 for s in data["ALL"][dk] if s[t] is not None)
+    #         m, se = means[t], sems[t]
+    #         ms = f"{m:.4f}" if not np.isnan(m) else "   n/a"
+    #         ss = f"{se:.4f}" if not np.isnan(se) else "   n/a"
+    #         print(f"{t:>5}  {ms:>8}  {ss:>8}  {n_obs:>5}")
 
     print(f"\n{'=' * 90}")
     print("PER-MODEL COUNTS")
@@ -806,18 +807,19 @@ def plot_metric_grid(
             fontsize=10,
         )
 
-    plt.show()
+    #plt.show()
+    plt.savefig(f"{display}.png")
     plt.close(fig)
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    run_files_by_model, model_labels = discover_run_files_by_model(ROOT_DIR, RUN_FILTER)
+    run_files_by_model, model_labels = discover_run_files_by_model(ROOT_DIR)
 
     if not model_labels:
         raise ValueError(
-            f"No model directories with run {RUN_FILTER} files found under {ROOT_DIR}"
+            f"No model directories with files found under {ROOT_DIR}"
         )
-    data, model_labels = recompute_all_flat(ROOT_DIR, RUN_FILTER)  # in some turns the dynamic progress tracker fails; but we can recompute the progress metrics entirely from the structure snapshot vs target
+    data, model_labels = recompute_all_flat(ROOT_DIR)  # in some turns the dynamic progress tracker fails; but we can recompute the progress metrics entirely from the structure snapshot vs target
 
     print_summary_tables(data, model_labels)
 
@@ -834,7 +836,7 @@ def main():
         keys=ALL_KEYS,
         title=(
             f"CRAFT Raw Metrics by Model Combination — Turn by Turn "
-            f"(Run {RUN_FILTER}, t=0 anchored, SEM over structures)"
+            f"(All Runs, t=0 anchored, SEM over structures)"
         ),
         fname=f"{SAVE_PREFIX}_raw.png",
         x_start=0,
@@ -849,7 +851,7 @@ def main():
         keys=DELTA_KEYS,
         title=(
             f"CRAFT Metric Deltas by Model Combination — Gain from Turn 1 Baseline "
-            f"(Run {RUN_FILTER}, turn 1 = 0, SEM over structures)"
+            f"(All Runs, turn 1 = 0, SEM over structures)"
         ),
         fname=f"{SAVE_PREFIX}_delta.png",
         x_start=1,

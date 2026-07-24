@@ -8,7 +8,7 @@ import pandas as pd
 from sklearn.metrics import cohen_kappa_score
 from scipy import stats
 import random
-df = pd.read_csv('CRAFT/craftValidationOutputs.csv')
+df = pd.read_csv('/Users/hannahvanderhoeven/Documents/GitHub/CRAFT/humanValidation/craftValidationOutputs.csv')
 plt.figure(figsize=(10, 6))
 
 judge = "PS"

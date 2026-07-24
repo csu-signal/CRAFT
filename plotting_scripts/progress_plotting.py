@@ -16,8 +16,8 @@ import matplotlib.cm as cm
 from pathlib import Path
 from collections import defaultdict
 #%matplotlib inline
-SIM_DIR = Path("craft_gricean_simulations").parent
-RUN_FILTER = 1
+SIM_DIR = Path("/Users/hannahvanderhoeven/Documents/GitHub/LLM_Pragmatic_Analysis/data/craft_data/craft_results/api/experiment1/gpt-4o_gpt-5.4-mini")
+RUN_FILTER = 3
 N_TURNS    = 20
 
 METRIC_KEYS = [
