@@ -33,11 +33,300 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from matplotlib.lines import Line2D
 
+class TaskProgressTracker:
+    """
+    Tracks progress toward target structure using distance-based metrics
+    """
+    
+    def __init__(self, target_structure):
+        self.target_structure = target_structure
+        self.progress_history = []
+        self.move_history = []
+    
+    def calculate_progress(self, current_structure):
+        """
+        Calculate progress using multiple metrics
+        
+        Returns:
+            dict: Progress metrics including IoU, distance, and completion percentage
+        """
+        
+        # Normalize structures for comparison
+        current_norm = self._normalize_structure(current_structure)
+        target_norm = self._normalize_structure(self.target_structure)
+        
+        # Calculate different metrics
+        iou_score = self._calculate_iou(current_norm, target_norm)
+        distance_score = self._calculate_distance(current_norm, target_norm)
+        completion_percentage = self._calculate_completion_percentage(current_norm, target_norm)
+        position_accuracy = self._calculate_position_accuracy(current_norm, target_norm)
+        
+        progress_data = {
+            'iou_score': iou_score,
+            'distance_score': distance_score,
+            'completion_percentage': completion_percentage,
+            'position_accuracy': position_accuracy,
+            'overall_progress': (iou_score + completion_percentage + position_accuracy) / 3,
+            'blocks_placed_correctly': self._count_correct_blocks(current_norm, target_norm),
+            'blocks_total_target': self._count_total_blocks(target_norm),
+            'blocks_total_current': self._count_total_blocks(current_norm)
+        }
+        
+        return progress_data
+    
+    def track_move(self, move_data, current_structure, turn_number):
+        """
+        Track a move and calculate progress delta
+        
+        Args:
+            move_data: The move that was executed
+            current_structure: Structure after the move
+            turn_number: Current turn number
+            
+        Returns:
+            dict: Progress metrics and delta from previous turn
+        """
+        
+        current_progress = self.calculate_progress(current_structure)
+        print(f"DEBUG: Progress calculation - target blocks: {self._count_total_blocks(self._normalize_structure(self.target_structure))}")
+        print(f"DEBUG: Progress calculation - current blocks: {self._count_total_blocks(self._normalize_structure(current_structure))}")
+        
+        # Calculate delta from previous turn
+        progress_delta = 0
+        if self.progress_history:
+            previous_progress = self.progress_history[-1]['metrics']['overall_progress']
+            progress_delta = current_progress['overall_progress'] - previous_progress
+        
+        # Store progress record
+        progress_record = {
+            'turn_number': turn_number,
+            'move': move_data,
+            'metrics': current_progress,
+            'progress_delta': progress_delta,
+            'structure_snapshot': copy.deepcopy(current_structure)
+        }
+        
+        self.progress_history.append(progress_record)
+        self.move_history.append(move_data)
+        
+        return progress_record
+
+    def _normalize_structure(self, structure):
+        """
+        Normalize structure format for comparison
+        Converts coordinate keys to tuples and handles missing positions
+        """
+        normalized = {}
+        
+        for i in range(3):
+            for j in range(3):
+                # Try both formats: with and without spaces
+                coord_key_spaces = f"({i}, {j})"
+                coord_key_no_spaces = f"({i},{j})"
+                coord_tuple = (i, j)
+                
+                if coord_key_no_spaces in structure:
+                    normalized[coord_tuple] = structure[coord_key_no_spaces]
+                elif coord_key_spaces in structure:
+                    normalized[coord_tuple] = structure[coord_key_spaces]
+                else:
+                    normalized[coord_tuple] = []
+        
+        return normalized
+    
+    # def _normalize_structure(self, structure):
+    #     """
+    #     Normalize structure format for comparison
+    #     Converts coordinate keys to tuples and handles missing positions
+    #     """
+    #     normalized = {}
+        
+    #     for i in range(3):
+    #         for j in range(3):
+    #             coord_key = f"({i}, {j})"
+    #             coord_tuple = (i, j)
+                
+    #             if coord_key in structure:
+    #                 normalized[coord_tuple] = structure[coord_key]
+    #             else:
+    #                 normalized[coord_tuple] = []
+        
+    #     return normalized
+    
+    def _calculate_iou(self, current, target):
+        """
+        Calculate Intersection over Union (IoU) for block positions
+        """
+        intersection = 0
+        union = 0
+        
+        for coord in current.keys():
+            current_blocks = set(current[coord])
+            target_blocks = set(target[coord])
+            
+            intersection += len(current_blocks.intersection(target_blocks))
+            union += len(current_blocks.union(target_blocks))
+        
+        return intersection / union if union > 0 else 0.0
+    
+    def _calculate_distance(self, current, target):
+        """
+        Calculate normalized distance between current and target states
+        Lower distance = better progress (closer to target)
+        """
+        total_distance = 0
+        total_possible_distance = 0
+        
+        for coord in current.keys():
+            current_blocks = current[coord]
+            target_blocks = target[coord]
+            
+            # Calculate edit distance (insertions + deletions needed)
+            current_set = set(current_blocks)
+            target_set = set(target_blocks)
+            
+            # Distance = blocks to remove + blocks to add
+            distance = len(current_set - target_set) + len(target_set - current_set)
+            total_distance += distance
+            
+            # Maximum possible distance for this position
+            max_distance = len(current_set) + len(target_set)
+            total_possible_distance += max_distance
+        
+        if total_possible_distance == 0:
+            return 1.0  # Perfect if both empty
+        
+        # Return 1 - normalized_distance (so higher = better)
+        normalized_distance = total_distance / total_possible_distance
+        return 1.0 - normalized_distance
+    
+    def _calculate_completion_percentage(self, current, target):
+        """
+        Calculate percentage of target blocks that are correctly placed
+        """
+        correct_blocks = 0
+        total_target_blocks = 0
+        
+        for coord in target.keys():
+            target_blocks = target[coord]
+            current_blocks = current[coord]
+            
+            total_target_blocks += len(target_blocks)
+            
+            # Count blocks that are in correct position and layer
+            for i, target_block in enumerate(target_blocks):
+                if i < len(current_blocks) and current_blocks[i] == target_block:
+                    correct_blocks += 1
+        
+        return correct_blocks / total_target_blocks if total_target_blocks > 0 else 0.0
+    
+    def _calculate_position_accuracy(self, current, target):
+        """
+        Calculate accuracy based on correct block placement regardless of layer order
+        """
+        correct_positions = 0
+        total_positions = 9  # 3x3 grid
+        
+        for coord in target.keys():
+            target_blocks = set(target[coord])
+            current_blocks = set(current[coord])
+            
+            # Position is correct if it has exactly the right blocks (regardless of order)
+            if target_blocks == current_blocks:
+                correct_positions += 1
+        
+        return correct_positions / total_positions
+    
+    def _count_correct_blocks(self, current, target):
+        """Count total number of blocks in correct positions"""
+        correct_count = 0
+        
+        for coord in target.keys():
+            target_blocks = target[coord]
+            current_blocks = current[coord]
+            
+            # Count blocks that match position and layer
+            for i, target_block in enumerate(target_blocks):
+                if i < len(current_blocks) and current_blocks[i] == target_block:
+                    correct_count += 1
+        
+        return correct_count
+    
+    def _count_total_blocks(self, structure):
+        """Count total blocks in structure"""
+        total = 0
+        for coord in structure.keys():
+            total += len(structure[coord])
+        return total
+    
+    def get_progress_summary(self):
+        """
+        Get summary of progress over time
+        """
+        if not self.progress_history:
+            return {"message": "No progress tracked yet"}
+        
+        latest = self.progress_history[-1]
+        
+        summary = {
+            'current_turn': latest['turn_number'],
+            'overall_progress': latest['metrics']['overall_progress'],
+            'completion_percentage': latest['metrics']['completion_percentage'],
+            'blocks_correct': latest['metrics']['blocks_placed_correctly'],
+            'blocks_total_needed': latest['metrics']['blocks_total_target'],
+            'recent_trend': self._calculate_recent_trend(),
+            'is_improving': self._is_improving(),
+            'estimated_turns_remaining': self._estimate_remaining_turns()
+        }
+        
+        return summary
+    
+    def _calculate_recent_trend(self, window_size=3):
+        """Calculate trend over recent moves"""
+        if len(self.progress_history) < 2:
+            return 0.0
+        
+        recent_deltas = [record['progress_delta'] for record in self.progress_history[-window_size:]]
+        return sum(recent_deltas) / len(recent_deltas)
+    
+    def _is_improving(self, window_size=3):
+        """Check if progress is generally improving"""
+        if len(self.progress_history) < 2:
+            return True
+        
+        recent_trend = self._calculate_recent_trend(window_size)
+        return recent_trend > -0.05  # Allow for small fluctuations
+    
+    def _estimate_remaining_turns(self):
+        """Rough estimate of turns needed to complete"""
+        if not self.progress_history:
+            return float('inf')
+        
+        current_progress = self.progress_history[-1]['metrics']['overall_progress']
+        
+        if current_progress >= 0.95:
+            return 0
+        
+        if len(self.progress_history) < 3:
+            return float('inf')
+        
+        # Calculate average progress per turn
+        total_progress = current_progress
+        turns_taken = len(self.progress_history)
+        avg_progress_per_turn = total_progress / turns_taken if turns_taken > 0 else 0
+        
+        if avg_progress_per_turn <= 0:
+            return float('inf')
+        
+        remaining_progress = 1.0 - current_progress
+        estimated_turns = remaining_progress / avg_progress_per_turn
+        
+        return max(1, int(estimated_turns))
+
 # ── Config ────────────────────────────────────────────────────────────────────
 
 ROOT_DIR = Path(
-
-    "craft_gricean_simulations_open_weight_testing_20test_notools"
+    "/home/hannah/CRAFT/CRAFT/craft_results/api/experiment1/gemini-3-flash-preview_gpt-5.4-mini"
 ).parent
 # "craft_gricean_simulations_open_weight_testing_20test_notools"  
 
@@ -65,6 +354,84 @@ ALL_KEYS = METRIC_KEYS + BINARY_KEYS
 DELTA_KEYS = [f"{k}_delta" for k in METRIC_KEYS]
 TOTAL_LEN = N_TURNS + 1
 TURNS_AXIS = np.arange(0, N_TURNS + 1)
+
+def recompute_metrics_from_logs(game: dict) -> dict:
+    """
+    Recompute all progress metrics from structure_snapshots in turn logs.
+    Returns dict: metric_name -> list of length N_TURNS+1 (index 0 = turn 0 baseline)
+    """
+    target_structure = game["target_structure"]
+    tracker = TaskProgressTracker(target_structure)
+    turns = game["turns"]
+    n_turns = game["turns_taken"]
+
+    METRIC_KEYS = [
+        "overall_progress",
+        "completion_percentage",
+        "iou_score",
+        "position_accuracy",
+        "distance_score",
+    ]
+    BINARY_KEYS = [
+        "move_executed",
+        "failed_move",
+        "correct_structure_placement",
+        "correct_side_placement",
+    ]
+
+    # initialize with turn 0 baseline — board state before any moves
+    # use structure_before from turn 1 as t=0 state
+    first_turn = next((t for t in turns if t.get("turn_number") == 1), None)
+
+    if first_turn is not None:
+        t0_structure = first_turn.get("structure_before", {})
+    else:
+        # fallback: empty board
+        t0_structure = {f"({i},{j})": [] for i in range(3) for j in range(3)}
+
+    t0_metrics = tracker.calculate_progress(t0_structure)
+
+    result = {k: [None] * (n_turns + 1) for k in METRIC_KEYS + BINARY_KEYS}
+    delta_result = {f"{k}_delta": [None] * (n_turns + 1) for k in METRIC_KEYS}
+
+    # set t=0
+    for k in METRIC_KEYS:
+        result[k][0] = t0_metrics[k]
+    for k in BINARY_KEYS:
+        result[k][0] = None  # no move at t=0
+
+    prev_metrics = t0_metrics
+
+    for turn in turns:
+        tn = turn.get("turn_number")
+        if tn is None or tn < 1 or tn > n_turns:
+            continue
+
+        # get board state after this turn
+        snapshot = turn.get("progress_data", {}).get("structure_snapshot")
+
+        if snapshot is None:
+            # failed move — board unchanged, use structure_before
+            snapshot = turn.get("structure_before", t0_structure)
+
+        # recompute metrics from snapshot
+        metrics = tracker.calculate_progress(snapshot)
+
+        for k in METRIC_KEYS:
+            result[k][tn] = metrics[k]
+            delta_result[f"{k}_delta"][tn] = metrics[k] - t0_metrics[k]
+
+        # binary keys — read directly from turn log, these are reliable
+        result["move_executed"][tn]              = float(turn.get("move_executed", 0) or 0)
+        result["failed_move"][tn]               = float(turn.get("failed_move", 0) or 0)
+        result["correct_structure_placement"][tn] = float(turn.get("correct_structure_placement", 0) or 0)
+        result["correct_side_placement"][tn]      = float(turn.get("correct_side_placement", 0) or 0)
+
+        prev_metrics = metrics
+
+    # merge
+    result.update(delta_result)
+    return result
 
 def recompute_all_flat(root_dir: Path, run_filter: int):
     """

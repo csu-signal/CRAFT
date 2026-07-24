@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from pathlib import Path
 from collections import defaultdict
-%matplotlib inline
+#%matplotlib inline
 SIM_DIR = Path("craft_gricean_simulations").parent
 RUN_FILTER = 1
 N_TURNS    = 20

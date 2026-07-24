@@ -588,11 +588,11 @@ if __name__ == "__main__":
     parser.add_argument("--mode",           type=str, default="api",
                         choices=["api", "local"],
                         help="Director mode: 'api' for frontier models, 'local' for open-weight")
-    parser.add_argument("--director",       type=str, default="gemini-2.5-flash",
+    parser.add_argument("--director",       type=str, default=None,
                         help="Specific director model to run (api: model name, local: key from LOCAL_MODELS)")
-    parser.add_argument("--builder",        type=str, default="gpt-4o-mini",
+    parser.add_argument("--builder",        type=str, default="gpt-5.4-mini",
                         help="Builder model name")
-    parser.add_argument("--dataset",        type=str, default="CRAFT/data/structures_dataset_20.json",
+    parser.add_argument("--dataset",        type=str, default="/home/hannah/CRAFT/CRAFT/data/structures_dataset_20.json",
                         help="Path to structures dataset JSON")
     parser.add_argument("--output",         type=str, default=None,
                         help="Output directory (default: auto-generated from builder model)")
@@ -606,7 +606,7 @@ if __name__ == "__main__":
                         help="Number of oracle moves to show per turn")
     parser.add_argument("--no_tools",       action="store_true",
                         help="Disable builder tool use (simulate_move)")
-    parser.add_argument("--structures",     type=str, default=None,
+    parser.add_argument("--structures",     type=str, default="0,1,2,3,4,5,6,7,8,9",
                         help="Comma-separated structure indices to run (e.g. '0,1,5'). Default: all")
     parser.add_argument("--quantize",       type=str, default=None,
                         choices=["4bit", "8bit"],
@@ -630,39 +630,41 @@ if __name__ == "__main__":
     oracle_tag = f"oracle{ORACLE_N}" if USE_ORACLE else "no_oracle"
     tools_tag  = "tools" if USE_TOOLS else "no_tools"
     run_tag    = f"run{RUN}"
+    print(args)
 
     OUTPUT_DIR = args.output or (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
-        f"{oracle_tag}_{tools_tag}_{run_tag}"
+        #f"{oracle_tag}_{tools_tag}_{run_tag}"
+        f"experiment1_{run_tag}"
     )
 
     LOCAL_MODELS = {
-        "qwen-7b":          "Qwen/Qwen2.5-7B-Instruct",
-        "qwen-14b":         "Qwen/Qwen2.5-14B-Instruct",
-        "qwen-32b":         "Qwen/Qwen2.5-32B-Instruct",
-        "llama-8b":         "meta-llama/Llama-3.1-8B-Instruct",
         "mistral-7b":       "mistralai/Mistral-7B-Instruct-v0.3",
-        "gemma-9b":         "google/gemma-2-9b-it",
-        "deepseek-v2-lite": "deepseek-ai/DeepSeek-V2-Lite-Chat",
-        "qwen-72b":         "Qwen/Qwen2.5-72B-Instruct",
+        "qwen-7b":          "Qwen/Qwen2.5-7B-Instruct",
+        #"llama-8b":         "meta-llama/Llama-3.1-8B-Instruct",
+        #"qwen-14b":         "Qwen/Qwen2.5-14B-Instruct",
+        #"qwen-32b":         "Qwen/Qwen2.5-32B-Instruct",
+        #"gemma-9b":         "google/gemma-2-9b-it",
+        #"deepseek-v2-lite": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+        #"qwen-72b":         "Qwen/Qwen2.5-72B-Instruct",
     }
 
     API_DIRECTOR_MODELS = [
-        "gpt-5",
-        "gpt-4o-mini",
-        "gpt-4.1-mini",
-        "gpt-4o",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
         "gemini-3-flash-preview",
-        "gemini-3.1-flash-lite-preview",
-        "claude-haiku-4-5",
-        "claude-sonnet-4-6",
+        "gpt-4o",
+        #"gpt-5",
+        #"gpt-4o-mini",
+        #"gpt-4.1-mini",
+        #"gemini-2.5-flash",
+        #"gemini-2.5-flash-lite",
+        #"gemini-3.1-flash-lite-preview",
+        #"claude-haiku-4-5",
+        #"claude-sonnet-4-6",
     ]
 
     MAX_TOKENS_BY_MODEL = {
-        "gpt-5":                          1000,
+        "gpt-5":                          2000,
         "gpt-4o-mini":                    2000,
         "gpt-4.1-mini":                   2000,
         "gpt-4o":                         2000,
@@ -700,15 +702,15 @@ if __name__ == "__main__":
         models_to_run_api = API_DIRECTOR_MODELS
         models_to_run_local = LOCAL_MODELS
 
-    def get_part_type_for_structure(structure_index, run):
-        seed = hash((structure_index, run)) % (2**32)
-        rng  = random.Random(seed)
-        return rng.choice(EnhancedGameState.PARTIAL_OPTIONS)
+    # def get_part_type_for_structure(structure_index, run):
+    #     seed = hash((structure_index, run)) % (2**32)
+    #     rng  = random.Random(seed)
+    #     return rng.choice(EnhancedGameState.PARTIAL_OPTIONS)
 
-    print("\nPartType sequence for this run:")
-    for i in structure_indices:
-        pt = get_part_type_for_structure(i, RUN)
-        print(f"  structure_{i:02d} → {pt}")
+    # print("\nPartType sequence for this run:")
+    # for i in structure_indices:
+    #     pt = get_part_type_for_structure(i, RUN)
+    #     print(f"  structure_{i:02d} → {pt}")
 
     def run_all_structures(director_model_name, shared_model=None, shared_tokenizer=None):
         for structure_index in structure_indices:
