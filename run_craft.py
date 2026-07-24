@@ -647,6 +647,7 @@ if __name__ == "__main__":
     }
 
     API_DIRECTOR_MODELS = [
+        "gpt-5",
         "gpt-4o-mini",
         "gpt-4.1-mini",
         "gpt-4o",
