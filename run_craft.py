@@ -660,6 +660,7 @@ if __name__ == "__main__":
     ]
 
     MAX_TOKENS_BY_MODEL = {
+        "gpt-5":                          1000,
         "gpt-4o-mini":                    2000,
         "gpt-4.1-mini":                   2000,
         "gpt-4o":                         2000,
