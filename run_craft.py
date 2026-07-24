@@ -444,7 +444,7 @@ def run_single_game(
             cValues['Side Placement']="N/A"
             cValues['Overall Structure State']="N/A"
             cValues['Group Agreement']='N/A'
-            requestCount += 1 
+            #requestCount += 1 
 
             # ── Execute ───────────────────────────────────────
             if builder_move['action'] == 'clarify':
@@ -590,7 +590,7 @@ if __name__ == "__main__":
                         help="Director mode: 'api' for frontier models, 'local' for open-weight")
     parser.add_argument("--director",       type=str, default="gemini-2.5-flash",
                         help="Specific director model to run (api: model name, local: key from LOCAL_MODELS)")
-    parser.add_argument("--builder",        type=str, default="gemini-2.5-flash",
+    parser.add_argument("--builder",        type=str, default="gpt-4o-mini",
                         help="Builder model name")
     parser.add_argument("--dataset",        type=str, default="CRAFT/data/structures_dataset_20.json",
                         help="Path to structures dataset JSON")
