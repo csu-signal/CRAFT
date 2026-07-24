@@ -611,6 +611,8 @@ if __name__ == "__main__":
     parser.add_argument("--quantize",       type=str, default=None,
                         choices=["4bit", "8bit"],
                         help="Quantization for local models (qwen-72b/32b default 4bit)")
+    parser.add_argument("--max_tokens",     type=int, default=None,
+                        help="Override max output tokens for director (overrides per-model defaults)")
     args = parser.parse_args()
 
     api_key = os.getenv('OPENAI_API_KEY')
@@ -730,7 +732,7 @@ if __name__ == "__main__":
                     builder_tool_use=USE_TOOLS,
                     use_oracle=USE_ORACLE,
                     num_oracle=ORACLE_N,
-                    max_tokens=MAX_TOKENS_BY_MODEL.get(director_model_name, DEFAULT_MAX_TOKENS),
+                    max_tokens=args.max_tokens if args.max_tokens else MAX_TOKENS_BY_MODEL.get(director_model_name, DEFAULT_MAX_TOKENS),
                 )
                 print(f"  Done [{director_model_name}] structure={structure_index} "
                       f"games={len(results['games'])}")

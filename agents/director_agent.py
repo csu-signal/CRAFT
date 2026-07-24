@@ -657,7 +657,7 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
     def _generate_with_local_model(self, prompt, tokenizer) -> str:
         if not self.local_model:
             raise Exception("No local model loaded")
-        max_new_tokens = 400
+        max_new_tokens = self.max_tokens
         # keep both references
         outer_model = self.local_model  # MistralForCausalLM — has .generate
         inner_model = self.local_model.model if hasattr(self.local_model, 'model') else self.local_model  # MistralModel — for class name check
@@ -754,7 +754,7 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
                 with torch.no_grad():
                     out = outer_model.generate(
                         input_ids,
-                        max_new_tokens=400,
+                        max_new_tokens=max_new_tokens,
                         do_sample=False,
                         pad_token_id=tokenizer.eos_token_id,
                     )
