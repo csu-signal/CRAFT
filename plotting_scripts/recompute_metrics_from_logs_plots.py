@@ -446,12 +446,16 @@ def recompute_all_flat(root_dir: Path):
         name = dirname.split(",,")[0]
         parts = name.split("_")
         model_map = {
-            "qwen-72b": "Qwen72B", "qwen-32b": "Qwen32B",
-            "qwen-14b": "Qwen14B", "qwen-7b": "Qwen7B",
-            "mistral-7b": "Mistral-7B", "llama-8b": "Llama-8B",
-            "gemma-9b": "Gemma-9B", "deepseek-v2-lite": "DeepSeek-Lite",
+            'qwen-7b':'Qwen-7B','qwen-14b':'Qwen-14B','qwen-32b':'Qwen-32B','qwen-72b':'Qwen-72B',
+            'mistral-7b':'Mistral-7B','llama-8b':'Llama-8B','gemma-9b':'Gemma-9B',
+            'deepseek-v2-lite':'DeepSeek-Lite',
+            'gpt-4o':'GPT-4o','gpt-4o-mini':'GPT-4o-Mini','gpt-4.1-mini':'GPT-4.1-Mini',
+            'claude-sonnet-4-6':'Claude-Sonnet-4.6','gemini-2.5-flash':'Gemini-2.5-Flash',
+            'gemini-3-flash-preview':'Gemini-3-Flash',
+            'gemini-3.1-flash-lite-preview':'Gemini-3.1-Flash-lite',
         }
         builder_map = {"gpt-4o-mini": "4o-mini"}
+        builder_map = {"gpt-5.4-mini": "5.4-mini"}
         model   = model_map.get(parts[0], parts[0])
         builder = builder_map.get(parts[1], parts[1]) if len(parts) > 1 else ""
         return f"{model} + {builder}" if builder else model
@@ -545,14 +549,17 @@ def compute_stats(series_list, total_len=TOTAL_LEN):
     sems = np.full(total_len, np.nan)
 
     for t in range(total_len):
-        vals = [s[t] for s in series_list if s[t] is not None]
-        if len(vals) >= 2:
-            arr = np.array(vals, dtype=float)
-            means[t] = np.mean(arr)
-            sems[t] = np.std(arr, ddof=1) / np.sqrt(len(arr))
-        elif len(vals) == 1:
-            means[t] = vals[0]
-            sems[t] = 0.0
+        try:
+            vals = [s[t] for s in series_list if t < len(s) and s[t] is not None]
+            if len(vals) >= 2:
+                arr = np.array(vals, dtype=float)
+                means[t] = np.mean(arr)
+                sems[t] = np.std(arr, ddof=1) / np.sqrt(len(arr))
+            elif len(vals) == 1:
+                means[t] = vals[0]
+                sems[t] = 0.0
+        except Exception as e:
+                    print(f"Error {e}")
 
     return means, sems
 
@@ -656,11 +663,14 @@ def print_summary_tables(data, model_labels):
             print(f"{'turn':>5}  {'mean':>8}  {'sem':>8}  {'n':>5}")
             print("-" * 35)
             for t in range(TOTAL_LEN):
-                n_obs = sum(1 for s in data[modelKey][k] if s[t] is not None)
-                m, se = means[t], sems[t]
-                ms = f"{m:.4f}" if not np.isnan(m) else "   n/a"
-                ss = f"{se:.4f}" if not np.isnan(se) else "   n/a"
-                print(f"{t:>5}  {ms:>8}  {ss:>8}  {n_obs:>5}")
+                try:
+                    n_obs = sum(1 for s in data[modelKey][k] if t < len(s) and s[t] is not None)
+                    m, se = means[t], sems[t]
+                    ms = f"{m:.4f}" if not np.isnan(m) else "   n/a"
+                    ss = f"{se:.4f}" if not np.isnan(se) else "   n/a"
+                    print(f"{t:>5}  {ms:>8}  {ss:>8}  {n_obs:>5}")
+                except Exception as e:
+                    print(f"Error {e}")
 
     # print(f"\n{'=' * 90}")
     # print("DELTA METRICS — gain from turn 1 baseline (ALL structures pooled across models)")
