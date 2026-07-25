@@ -594,7 +594,8 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
             config=types.GenerateContentConfig(
                 system_instruction=f"You are Director {self.director_id} in a collaborative LEGO construction task.",
                 max_output_tokens=self.max_tokens,  # same as everyone else
-                temperature=0.7,
+                #temperature=0.7,
+                temperature=0,
                 thinking_config=types.ThinkingConfig(thinking_budget=0)  # disable native thinking
             )
         )
@@ -612,7 +613,8 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
                 {"role": "system", "content": f"You are Director {self.director_id} in a collaborative LEGO construction task."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
+            #temperature=0.7,
+            temperature=0,
             max_tokens=max_tokens,
         )
         
@@ -683,6 +685,7 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
                     messages,
                     max_new_tokens=max_new_tokens,
                     do_sample=False,
+                    temperature=0,
                     return_full_text=False,   # ← only return new tokens, not the prompt
                 )
                 print("DEBUG deepseek raw out:", out)
@@ -718,8 +721,8 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
             # print(f"DEBUG templated_text length: {len(templated_text)}")
             # print("DEBUG: calling pipeline with pre-templated string...")
 
-
-            out = self.local_model(messages, max_new_tokens=max_new_tokens, do_sample=False, return_full_text=False)
+            out = self.local_model(messages, max_new_tokens=max_new_tokens, do_sample=False, return_full_text=False, temperature=0)
+                                #    
             print("DEBUG pipeline out:", out)
             result = out[0]["generated_text"]
             # return_full_text=False → plain string

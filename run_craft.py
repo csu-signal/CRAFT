@@ -583,14 +583,15 @@ def run_single_game(
 if __name__ == "__main__":
     import argparse
     load_dotenv()
+    experiment = "experiment2"
 
     parser = argparse.ArgumentParser(description="CRAFT Runner")
-    parser.add_argument("--mode",           type=str, default="api",
+    parser.add_argument("--mode",           type=str, default="local",
                         choices=["api", "local"],
                         help="Director mode: 'api' for frontier models, 'local' for open-weight")
     parser.add_argument("--director",       type=str, default=None,
                         help="Specific director model to run (api: model name, local: key from LOCAL_MODELS)")
-    parser.add_argument("--builder",        type=str, default="gpt-5.4-mini",
+    parser.add_argument("--builder",        type=str, default="gpt-4o-mini",
                         help="Builder model name")
     parser.add_argument("--dataset",        type=str, default="/home/hannah/CRAFT/CRAFT/data/structures_dataset_20.json",
                         help="Path to structures dataset JSON")
@@ -611,7 +612,7 @@ if __name__ == "__main__":
     parser.add_argument("--quantize",       type=str, default=None,
                         choices=["4bit", "8bit"],
                         help="Quantization for local models (qwen-72b/32b default 4bit)")
-    parser.add_argument("--max_tokens",     type=int, default=None,
+    parser.add_argument("--max_tokens",     type=int, default=3000,
                         help="Override max output tokens for director (overrides per-model defaults)")
     args = parser.parse_args()
 
@@ -636,7 +637,7 @@ if __name__ == "__main__":
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
         #f"{oracle_tag}_{tools_tag}_{run_tag}"
-        f"experiment1_{run_tag}"
+        f"{experiment}_{run_tag}"
     )
 
     LOCAL_MODELS = {
