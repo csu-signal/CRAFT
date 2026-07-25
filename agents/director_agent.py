@@ -722,7 +722,7 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
             # print("DEBUG: calling pipeline with pre-templated string...")
 
             out = self.local_model(messages, max_new_tokens=max_new_tokens, do_sample=False, return_full_text=False, temperature=0)
-                                #    
+                                # ,    
             print("DEBUG pipeline out:", out)
             result = out[0]["generated_text"]
             # return_full_text=False → plain string

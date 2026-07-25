@@ -190,7 +190,8 @@ def run_craft_experiments(
                 local_model=shared_model,
                 local_tokenizer=shared_tokenizer,
                 structure_index=structure_index,  
-                run=run,                       
+                run=run,
+                max_tokens=max_tokens,                        
             )
             for did in ["D1", "D2", "D3"]
         }
@@ -583,7 +584,7 @@ def run_single_game(
 if __name__ == "__main__":
     import argparse
     load_dotenv()
-    experiment = "experiment2"
+    experiment = "experiment2_fixed"
 
     parser = argparse.ArgumentParser(description="CRAFT Runner")
     parser.add_argument("--mode",           type=str, default="local",
@@ -607,7 +608,7 @@ if __name__ == "__main__":
                         help="Number of oracle moves to show per turn")
     parser.add_argument("--no_tools",       action="store_true",
                         help="Disable builder tool use (simulate_move)")
-    parser.add_argument("--structures",     type=str, default="0,1,2,3,4,5,6,7,8,9",
+    parser.add_argument("--structures",     type=str, default="0",
                         help="Comma-separated structure indices to run (e.g. '0,1,5'). Default: all")
     parser.add_argument("--quantize",       type=str, default=None,
                         choices=["4bit", "8bit"],
@@ -652,14 +653,14 @@ if __name__ == "__main__":
     }
 
     API_DIRECTOR_MODELS = [
-        "gemini-3-flash-preview",
-        "gpt-4o",
-        #"gpt-5",
-        #"gpt-4o-mini",
+        #"gemini-3-flash-preview",
+        #"gpt-4o",
+        #"gpt-5.4-mini",
+        "gpt-4o-mini",
         #"gpt-4.1-mini",
         #"gemini-2.5-flash",
         #"gemini-2.5-flash-lite",
-        #"gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-lite-preview",
         #"claude-haiku-4-5",
         #"claude-sonnet-4-6",
     ]
