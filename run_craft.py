@@ -280,8 +280,8 @@ def run_single_game(
     start = time.time()
     target_structure    = structure_data['structure']
     target_spans        = structure_data['spans']          # already int keys
-    # target_director_views = structure_data['director_views'] #possible inconsistency: use current live target views from game state:  target_director_views = get_director_views_fn(target_structure, spans=target_spans)
-    target_director_views = get_director_views_fn(target_structure, spans=target_spans)
+    target_director_views = structure_data['director_views'] #possible inconsistency: use current live target views from game state:  target_director_views = get_director_views_fn(target_structure, spans=target_spans)
+    #target_director_views = get_director_views_fn(target_structure, spans=target_spans)
     # ── Init game state ───────────────────────────────────────
     partComplete = True
     game_state = EnhancedGameState(
@@ -584,7 +584,7 @@ def run_single_game(
 if __name__ == "__main__":
     import argparse
     load_dotenv()
-    experiment = "experiment2_fixed"
+    experiment = "experiment3_rerun"
 
     parser = argparse.ArgumentParser(description="CRAFT Runner")
     parser.add_argument("--mode",           type=str, default="local",
@@ -608,12 +608,12 @@ if __name__ == "__main__":
                         help="Number of oracle moves to show per turn")
     parser.add_argument("--no_tools",       action="store_true",
                         help="Disable builder tool use (simulate_move)")
-    parser.add_argument("--structures",     type=str, default="0",
+    parser.add_argument("--structures",     type=str, default="0,1,2,3,4,5,6,7,8,9",
                         help="Comma-separated structure indices to run (e.g. '0,1,5'). Default: all")
     parser.add_argument("--quantize",       type=str, default=None,
                         choices=["4bit", "8bit"],
                         help="Quantization for local models (qwen-72b/32b default 4bit)")
-    parser.add_argument("--max_tokens",     type=int, default=3000,
+    parser.add_argument("--max_tokens",     type=int, default=None,
                         help="Override max output tokens for director (overrides per-model defaults)")
     args = parser.parse_args()
 
@@ -653,8 +653,8 @@ if __name__ == "__main__":
     }
 
     API_DIRECTOR_MODELS = [
-        #"gemini-3-flash-preview",
-        #"gpt-4o",
+        "gemini-3-flash-preview",
+        "gpt-4o",
         #"gpt-5.4-mini",
         "gpt-4o-mini",
         #"gpt-4.1-mini",
