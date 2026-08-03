@@ -79,7 +79,7 @@ class DirectorAgent:
         rng  = random.Random(seed)
         self.archetype   = rng.choice(DirectorAgent.TYPES)
         self.personality = DirectorAgent.ARCHETYPES[self.archetype]
-        print(f"  {director_id} archetype: {self.archetype}"
+        print(f"  {director_id} archetype: {self.archetype} "
             f"(structure={structure_index}, run={run}, seed={seed})")
             
         # self.archetype = DirectorAgent.TYPES[random.randint(0, 4)]
@@ -169,6 +169,7 @@ class DirectorAgent:
     From where the builder sits, D1 is to their left, D2 is across from them, and D3 is to their right.
 
     YOU ARE {self.archetype}
+
     ### YOUR PERSONALITY
     {self.personality}
     
