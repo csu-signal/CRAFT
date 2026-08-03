@@ -327,8 +327,8 @@ def run_single_game(
         lastPartType = game_state.partType
         game_results['partialCompletionCategory'] = game_state.partType
 
-    # for d in director_agents.values():
-    #     game_results[d.director_id + " Archetype"] = d.archetype
+    for d in director_agents.values():
+        game_results[d.director_id + " Archetype"] = d.archetype
 
     game_results['turns'] = []
 
@@ -585,7 +585,6 @@ def run_single_game(
 if __name__ == "__main__":
     import argparse
     load_dotenv()
-    experiment = "experiment5_rerun"
 
     parser = argparse.ArgumentParser(description="CRAFT Runner")
     parser.add_argument("--mode",           type=str, default="local",
@@ -641,9 +640,7 @@ if __name__ == "__main__":
     OUTPUT_DIR = args.output or (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
-        #f"{oracle_tag}_{tools_tag}_{run_tag}"
-        f"{experiment}_{run_tag}"
-    )
+        f"{oracle_tag}_{tools_tag}_{run_tag}")
 
     LOCAL_MODELS = {
         "mistral-7b":       "mistralai/Mistral-7B-Instruct-v0.3",
