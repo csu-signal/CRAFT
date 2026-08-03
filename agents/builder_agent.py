@@ -1,4 +1,5 @@
 import copy
+from enum import Enum
 import json
 import random
 import re
@@ -26,7 +27,60 @@ except ImportError:
  
 from agents.builder_tools import simulate_move
 
+class BuilderType(Enum):
+    Base = "Base"
+    Literal1 = "Literal1"
+    Pragmatic1 = "Pragmatic1"
+    Literal2 = "Literal2"
+    Pragmatic2 = "Pragmatic2"
+    Literal3 = "Literal3"
+    Pragmatic3 = "Pragmatic3"
 
+pragmatic_addIns = {
+    BuilderType.Base: '',
+    BuilderType.Literal1: """
+Read each director's message at face value.
+Use only the semantic meaning of the directors' utterances and your prior beliefs in your interpretation. 
+Disregard director intent or informativeness and consider only the literal interpretation.
+""",
+    BuilderType.Pragmatic1: '''
+Infer what you can from the director's message.
+
+Before deciding on a move, consider the following and make inferences based on your own thinking:
+1. Identify which director gave the most informative description in order to take an action and further the task.
+2. Do you think any of the dialogue is false or misleading?
+3. Do you find the dialogue to be appropriate and focused on the task?
+4. Do you find the meaning of any words used in the dialogue to be unclear or obscure?
+''',
+    BuilderType.Literal2: """
+Interpret each director's messages with strict literalism.
+Use only the semantic meaning of the directors' utterances and your prior beliefs in your interpretation. 
+Treat the director statements as a series of literal propositions, independent of the speaker's goals.
+""",
+    BuilderType.Pragmatic2: '''
+Infer what you can from the director's message.
+
+Before deciding on a move, consider the following and make inferences based on your own thinking:
+1. Do you find any of the dialogue to be unnecessary in order for you to understand the perspectives of the directors?
+2. Do find that any of the observations or conclusions made in the dialogue lack adequate evidence to support their ideas? 
+3. Do you find the dialogue to be appropriate and focused on the task?
+4. Do you find the organization of the dialogue to be clear and easy to follow?
+''',
+    BuilderType.Literal3: """
+Restrict interpretation to the compositional semantics of each utterance.
+Disregard pragmatic inference or speaker intent; evaluate statements solely as independent logical propositions.
+Base interpretations exclusively on literal meaning and established prior knowledge.
+""",
+    BuilderType.Pragmatic3: '''
+Infer what you can from the director's message.
+
+Before deciding on a move, consider the following and make inferences based on context, intent, and shared knowledge
+1. Do you find the dialogue to be informative enough to take an action and further the task?
+2. Is any of this phrasing potentially misrepresentative?
+3. Does the exchange remain focused, or does it drift into irrelevant details?
+4. Is the structure of this conversation easy to navigate?
+''',
+}
 
 class BuilderAgent:
     """Builder agent that uses API calls"""
@@ -111,12 +165,13 @@ class BuilderAgent:
         return sections
 
     def create_builder_prompt(self, director_discussion, current_state, 
-                          available_blocks, oracle_moves=None):  
+                          available_blocks, oracle_moves=None, builderPromptAddin = BuilderType.Base):  
         """Create builder prompt with confirmation system"""
         
 
         block_reference = get_block_encoding_reference()
         coordinate_reference = get_coordinate_system_reference()
+        print(pragmatic_addIns[builderPromptAddin])
         print(f"  [PROMPT] oracle_moves received: {oracle_moves is not None}, count={len(oracle_moves) if oracle_moves else 0}")
 
         oracle_section = ""
@@ -151,6 +206,8 @@ The three Directors (D1, D2, and D3) have to instruct you to build a single stru
 Your job is to place, move, or remove blocks on the board to build the structure.
 From a top-down view of the target structure, D1's private view is of the left wall of the structure, D2's view is of the top wall of the structure, and D3's view of the right wall of the structure.
 From where the builder sits, D1 is to their left, D2 is across from them, and D3 is to their right.
+
+{pragmatic_addIns[builderPromptAddin]}
 
 SPATIAL ORIENTATION (use only in your thinking)
 The coordinate grid from above:
@@ -330,7 +387,7 @@ BEFORE PLACING: Think step by step to make sure that you have interpreted the in
 
     def create_builder_prompt_with_tools(self, director_discussion, current_state,
                                      available_blocks, max_simulations=3,
-                                     oracle_moves=None):  
+                                     oracle_moves=None, builderPromptAddin = BuilderType.Base):  
         """
         Thin wrapper: keep the base prompt exactly as-is, and append only tool policy.
         (No restatement of schemas / long contracts.)
@@ -339,7 +396,8 @@ BEFORE PLACING: Think step by step to make sure that you have interpreted the in
         director_discussion=director_discussion,
         current_state=current_state,
         available_blocks=available_blocks,
-        oracle_moves=oracle_moves)
+        oracle_moves=oracle_moves,
+        builderPromptAddin = builderPromptAddin)
 
         thin_addendum = f"""
 ---
@@ -464,17 +522,18 @@ WORKFLOW:
             
 
     def get_builder_prompt(self, director_discussion, current_state, available_blocks,
-                       use_tools=False, max_simulations=3, oracle_moves=None):  # ← add
+                       use_tools=False, max_simulations=3, oracle_moves=None, builderPromptAddin = BuilderType.Base):  # ← add
         if use_tools:
-            return self.create_builder_prompt_with_tools(
-                director_discussion, current_state, available_blocks,
-                max_simulations=max_simulations,
-                oracle_moves=oracle_moves,  
-            )
+                return self.create_builder_prompt_with_tools(
+                    director_discussion, current_state, available_blocks,
+                    max_simulations=max_simulations,
+                    oracle_moves=oracle_moves, 
+                    builderPromptAddin = builderPromptAddin 
+                )
         return self.create_builder_prompt(
-            director_discussion, current_state, available_blocks,
-            oracle_moves=oracle_moves,   
-        )
+                director_discussion, current_state, available_blocks,
+                oracle_moves=oracle_moves, builderPromptAddin = builderPromptAddin  
+            )
 
     def generate_move(self, director_discussion, current_state, available_blocks, oracle_moves=None, check_prompt_tokens = False) -> Dict:
         """Generate builder move with improved parsing"""

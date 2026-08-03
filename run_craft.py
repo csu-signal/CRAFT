@@ -32,7 +32,7 @@ from agents.environment import (
     EnhancedGameState, get_oracle_moves
 )
 from agents.director_agent import DirectorAgent
-from agents.builder_agent import BuilderAgent
+from agents.builder_agent import BuilderAgent, BuilderType
 from agents.oracle import enumerate_correct_actions
 import inspect
 import time
@@ -327,8 +327,8 @@ def run_single_game(
         lastPartType = game_state.partType
         game_results['partialCompletionCategory'] = game_state.partType
 
-    for d in director_agents.values():
-        game_results[d.director_id + " Archetype"] = d.archetype
+    # for d in director_agents.values():
+    #     game_results[d.director_id + " Archetype"] = d.archetype
 
     game_results['turns'] = []
 
@@ -420,7 +420,8 @@ def run_single_game(
                 current_state=game_state.current_structure,
                 available_blocks=game_state.available_blocks,
                 use_tools=use_tools,
-                oracle_moves=oracle_moves,   
+                oracle_moves=oracle_moves,  
+                builderPromptAddin = BUILDER_PROMPT
             )
             
             if use_tools:
@@ -584,7 +585,7 @@ def run_single_game(
 if __name__ == "__main__":
     import argparse
     load_dotenv()
-    experiment = "experiment3_rerun"
+    experiment = "experiment5_rerun"
 
     parser = argparse.ArgumentParser(description="CRAFT Runner")
     parser.add_argument("--mode",           type=str, default="local",
@@ -594,6 +595,8 @@ if __name__ == "__main__":
                         help="Specific director model to run (api: model name, local: key from LOCAL_MODELS)")
     parser.add_argument("--builder",        type=str, default="gpt-4o-mini",
                         help="Builder model name")
+    parser.add_argument("--builderPrompt",  type=str, default="Literal1",
+                            help="Builder prompt add in name")
     parser.add_argument("--dataset",        type=str, default="/home/hannah/CRAFT/CRAFT/data/structures_dataset_20.json",
                         help="Path to structures dataset JSON")
     parser.add_argument("--output",         type=str, default=None,
@@ -622,6 +625,7 @@ if __name__ == "__main__":
     # ── Config ────────────────────────────────────────────────
     DIRECTOR_MODE = args.mode
     BUILDER_MODEL = args.builder
+    BUILDER_PROMPT = BuilderType(args.builderPrompt)
     DATASET_PATH  = args.dataset
     MAX_TURNS     = args.turns
     RUN           = args.run
@@ -651,6 +655,26 @@ if __name__ == "__main__":
         #"deepseek-v2-lite": "deepseek-ai/DeepSeek-V2-Lite-Chat",
         #"qwen-72b":         "Qwen/Qwen2.5-72B-Instruct",
     }
+
+    # LOCAL_MODELS = {
+    #     # "qwen-7b":          "/data/open-weight-llms/models/qwen-7b",
+    #     # "qwen7b_dpo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
+    #     # "qwen7b_sft_r32_builder" :"/data/open-weight-llms/models/qwen-7b",
+    #     "qwen7b_ipo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
+        
+    #     # "qwen-14b":         "/data/open-weight-llms/models/qwen-14b",
+    #     # "qwen-32b":         "/data/open-weight-llms/models/qwen-32b",
+        
+    #     # "llama-8b":         "/data/open-weight-llms/models/llama-8b",
+    #     # "llama-8b_dpo_r32_from_sft":  "/data/open-weight-llms/models/llama-8b",
+    #     # "llama-8b_r32_baseline": "/data/open-weight-llms/models/llama-8b",
+    #     "llama8b_ipo_r32_from_sft" : "/data/open-weight-llms/models/llama-8b"
+
+    #     # "mistral-7b":       "/data/open-weight-llms/models/mistral-7b",
+    #     # "gemma-9b":         "/data/open-weight-llms/models/gemma-9b",
+    #     # "deepseek-v2-lite": "/data/open-weight-llms/models/deepseek-v2-lite",
+    #     # "qwen-72b":         "/data/open-weight-llms/models/qwen-72b",
+    # }
 
     API_DIRECTOR_MODELS = [
         "gemini-3-flash-preview",

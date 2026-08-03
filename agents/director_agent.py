@@ -77,9 +77,9 @@ class DirectorAgent:
         director_num = {"D1": 0, "D2": 1, "D3": 2}.get(director_id, 0)
         seed = hash((structure_index, director_num, run)) % (2**32)
         rng  = random.Random(seed)
-        self.archetype   = rng.choice(DirectorAgent.TYPES)
-        self.personality = DirectorAgent.ARCHETYPES[self.archetype]
-        print(f"  {director_id} archetype: {self.archetype} "
+        # self.archetype   = rng.choice(DirectorAgent.TYPES)
+        # self.personality = DirectorAgent.ARCHETYPES[self.archetype]
+        print(f"  {director_id}"
             f"(structure={structure_index}, run={run}, seed={seed})")
             
         # self.archetype = DirectorAgent.TYPES[random.randint(0, 4)]
@@ -167,13 +167,6 @@ class DirectorAgent:
         return f"""You are Director {self.director_id} ({self.director_id}) in a collaborative LEGO construction task.
     You are sitting around a physical board with a Builder and two other Directors.
     From where the builder sits, D1 is to their left, D2 is across from them, and D3 is to their right.
-
-    YOU ARE {self.archetype}
-
-    ### YOUR PERSONALITY
-    {self.personality}
-    
-    VERY IMPORTANT: YOU MUST ADOPT THIS PERSONALITY IN YOUR INTERNAL REASONING AND PUBLIC UTTERANCES
 
     ### YOUR PERSPECTIVE
     {perspective_descriptions[self.director_id]}
