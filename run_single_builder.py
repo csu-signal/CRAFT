@@ -1,22 +1,15 @@
-import copy
 from enum import Enum
 import json
-import random
+from pathlib import Path
 import re
 import os
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict
 from openai import OpenAI
-from datetime import datetime
-from task_progress_tracker import TaskProgressTracker
 from structure_generator_v2 import (
-    generate_dataset,
-    get_director_views as get_director_views_fn,
-    validate_placement_action,
-    apply_placement_action,
-    ALL_COORDS, OPTIONAL, REQUIRED_FULL,
-       get_block_encoding_reference,       
+    get_block_encoding_reference,       
     get_coordinate_system_reference     
 )
+from datasets import load_dataset
 # from oracle import enumerate_correct_actions
 try:
     import torch
@@ -803,30 +796,51 @@ WORKFLOW:
         return self.parse_builder_response(first_line)
 
 if __name__ == "__main__":
+    # don't need tools
+    # using oracle values
+    # structure before 
+    # as close as we can be to the existing prompt
+    # saving off satisfication after new move (comparing to factual averages)
+
+    folder_path = Path("/home/hannah/CRAFT/CRAFT/divergenceData/validation")
+    aggregated_data = []
+    ds = load_dataset("Abhijnan/craft-benchmark-lean")
+
+    for file_path in folder_path.glob("*.json"):
+        with open(file_path, "r", encoding="utf-8") as file:
+            data = json.load(file)   
+            aggregated_data.extend(data)
+
     api_key = os.getenv('OPENAI_API_KEY')
     builder_model_name = "gpt-4o"
     builder_agent = BuilderAgent(api_key=api_key, model_name=builder_model_name)
-    use_tools = True
-                
-    if use_tools:
-        builder_move = builder_agent.generate_move_with_tools(
-        director_discussion=director_discussion_full,
-        game_state=game_state,  # pass state so tool can simulate
-        oracle_moves=oracle_moves, 
-        check_prompt_tokens=True  # ← only when needed
-    )
-    else:
+
+    for turn in aggregated_data:    
+        test = 0 
+        counterfact = turn[turn["builderSelected"]]
+
+        turnIndex = counterfact["timestamp"] 
+        structure = counterfact["structure"]   
+        utterance = counterfact["utterance"]  
+        currentStructure = counterfact["structureBefore"] 
+        available_blocks = ["gs", "gl", "bs", "bl", "rs", "rl", "ys", "yl", "os", "ol"]
+        director = counterfact["modelCombo"].split("+")[0].strip().lower()
+
+        filtered_ds = ds.filter(lambda example: example["turn_number"] == turnIndex and
+                                example["structure_id"] == structure and example["director_model"] == director)
+
+        huggingFaceRow = filtered_ds['train'][0]
         builder_move = builder_agent.generate_move(
-        director_discussion=director_discussion_full,
-        current_state=game_state.current_structure,  # pass state so tool can simulate
-        available_blocks=game_state.available_blocks,
-        oracle_moves=oracle_moves, 
-    )
+        director_discussion=utterance,
+        current_state=currentStructure,  # pass state so tool can simulate
+        available_blocks=available_blocks,
+        oracle_moves=huggingFaceRow["oracle_moves"], 
+        )
     
-    print(f"  Builder move: {builder_move}")
+    # print(f"  Builder move: {builder_move}")
 
-    # ── Execute ───────────────────────────────────────
-    if builder_move['action'] == 'clarify':
-
-    else:
-        success, progress_data, structurePlacement, sidePlacement, overall = game_state.execute_move(builder_move)
+    # # ── Execute ───────────────────────────────────────
+    # if builder_move['action'] == 'clarify':
+    #     test = 0
+    # else:
+    #     success, progress_data, structurePlacement, sidePlacement, overall = game_state.execute_move(builder_move)
