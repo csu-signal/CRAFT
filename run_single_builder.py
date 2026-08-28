@@ -817,13 +817,14 @@ if __name__ == "__main__":
 
     for turn in aggregated_data:    
         test = 0 
-        counterfact = turn[turn["builderSelected"]]
+        #factual = turn[turn["builderSelected"]]
+        counterfact = turn[turn["predicted"]]
 
+        available_blocks = ["gs", "gl", "bs", "bl", "rs", "rl", "ys", "yl", "os", "ol"]
         turnIndex = counterfact["timestamp"] 
         structure = counterfact["structure"]   
-        utterance = counterfact["utterance"]  
+        utterance = turn["predicted"] + ": " + counterfact["utterance"]  
         currentStructure = counterfact["structureBefore"] 
-        available_blocks = ["gs", "gl", "bs", "bl", "rs", "rl", "ys", "yl", "os", "ol"]
         director = counterfact["modelCombo"].split("+")[0].strip().lower()
 
         filtered_ds = ds.filter(lambda example: example["turn_number"] == turnIndex and

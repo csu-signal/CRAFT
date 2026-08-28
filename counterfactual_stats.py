@@ -63,6 +63,7 @@ if __name__ == "__main__":
     }
 
     print(averages)
+    # create plot turn on x, average sat (train and val) on y
     print("\n")
 
     averages = {
