@@ -834,7 +834,7 @@ if __name__ == "__main__":
         director_discussion=utterance,
         current_state=currentStructure,  # pass state so tool can simulate
         available_blocks=available_blocks,
-        oracle_moves=huggingFaceRow["oracle_moves"], 
+        oracle_moves= json.loads(huggingFaceRow["oracle_moves"]), 
         )
     
     # print(f"  Builder move: {builder_move}")
