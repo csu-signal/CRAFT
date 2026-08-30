@@ -267,9 +267,9 @@ class EnhancedGameState:
     """Enhanced GameState class that integrates with all agents and progress tracking"""
     PARTIAL_OPTIONS = ["empty", "firstLayer", "firstTwoLayers", "D1Wall", "D2Wall","D3Wall"]
 
-    def __init__(self, target_structure, target_spans=None, available_blocks=None, strict_target=False, invisible_cells=None, partComplete = False,  partType= None):
+    def __init__(self, target_structure, target_spans=None, available_blocks=None, strict_target=False, invisible_cells=None, partComplete = False, partType= None, current_structure= None):
         # self.current_structure = {f"({i}, {j})": [] for i in range(3) for j in range(3)} #remove space
-        self.current_structure = {f"({i},{j})": [] for i in range(3) for j in range(3)}
+        self.current_structure = {f"({i},{j})": [] for i in range(3) for j in range(3)} if current_structure != None else current_structure
         self.target_structure = target_structure
         self.partType = EnhancedGameState.PARTIAL_OPTIONS[random.randint(0, 5)] if partType == None else partType
         if(partComplete):

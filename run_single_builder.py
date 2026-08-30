@@ -5,6 +5,9 @@ import re
 import os
 from typing import Dict
 from openai import OpenAI
+from agents.environment import (
+    EnhancedGameState, get_oracle_moves
+)
 from structure_generator_v2 import (
     get_block_encoding_reference,       
     get_coordinate_system_reference     
@@ -19,6 +22,131 @@ except ImportError:
     HF_AVAILABLE = False
  
 from agents.builder_tools import simulate_move
+
+def _encode_block(block_name) -> str:
+        """Convert block name to encoded format"""
+        # block_name is already in correct format (e.g., 'os', 'bs', 'ys')
+        if block_name in ["gs", "gl", "bs", "bl", "rs", "rl", "ys", "yl", "os", "ol"]:
+            return block_name
+        else:
+            return "unknown"
+
+def _place_block(current_structure, current_spans, position, block, layer, span_to=None):
+        """
+        Place a block at position.
+        If block is large, places on both position and span_to atomically.
+        """
+        try:
+            block_encoded = _encode_block(block)
+
+            # ── Large block: place on both cells atomically ────────
+            if block_encoded.endswith('l'):
+                if not span_to:
+                    print(f"DEBUG: Large block '{block_encoded}' requires span_to")
+                    return False, current_structure, current_spans
+
+                if position not in current_structure:
+                    current_structure[position] = []
+                if span_to not in current_structure:
+                    current_structure[span_to] = []
+                # optional safety: neighbor must be same height
+                if len(current_structure[position]) != len(current_structure[span_to]):
+                    print("DEBUG: large block placement requires equal stack heights")
+                    return False, current_structure, current_spans
+
+                current_structure[position].append(block_encoded)
+                current_structure[span_to].append(block_encoded)
+
+                # Record span
+                current_spans.setdefault(layer, []).append((position, span_to))
+
+                print(f"DEBUG: Placed large '{block_encoded}' "
+                    f"at {position}↔{span_to} layer {layer}")
+
+            # ── Small block: single cell ───────────────────────────
+            else:
+                if position not in current_structure:
+                    current_structure[position] = []
+                current_structure[position].append(block_encoded)
+                print(f"DEBUG: Placed small '{block_encoded}' "
+                    f"at {position} layer {layer}")
+
+            return True, current_structure, current_spans
+
+        except Exception as e:
+            print(f"Error placing block: {e}")
+            return False, current_structure, current_spans
+    
+def _remove_block(current_structure, current_spans, position, layer, span_to=None) -> bool:
+    """
+    Remove the top block from position.
+    If block is large, removes from both position and span partner atomically.
+    """
+    try:
+        stack = current_structure.get(position, [])
+
+        if len(stack) == 0:
+            print(f"DEBUG: Cannot remove — stack at {position} is empty")
+            return False
+
+        if layer != len(stack) - 1:
+            print(
+                f"DEBUG: Cannot remove layer {layer} — "
+                f"must remove top (layer {len(stack)-1}) first"
+            )
+            return False
+
+        top_block = stack[-1]
+
+        # ── Large block: remove both halves atomically ─────────
+        if top_block.endswith('l'):
+            if not span_to:
+                print(f"DEBUG: Large block removal requires span_to")
+                return False
+
+            neighbor_stack = current_structure.get(span_to, [])
+
+            # Neighbor must also have this block at same layer
+            if len(neighbor_stack) == 0 or neighbor_stack[-1] != top_block:
+                print(
+                    f"DEBUG: Span partner {span_to} does not have matching "
+                    f"block '{top_block}' at top"
+                )
+                return False, current_structure, current_spans
+
+            if len(neighbor_stack) - 1 != layer:
+                print(
+                    f"DEBUG: Span partner {span_to} top layer "
+                    f"{len(neighbor_stack)-1} != {layer}"
+                )
+                return False, current_structure, current_spans
+
+            # Remove from both cells
+            current_structure[position].pop()
+            current_structure[span_to].pop()
+
+            # Remove span record
+            layer_spans = current_spans.get(layer, [])
+            current_spans[layer] = [
+                (a, b) for a, b in layer_spans
+                if not (a == position and b == span_to)
+                and not (a == span_to and b == position)
+            ]
+
+            print(f"DEBUG: Removed large block '{top_block}' "
+                f"from {position}↔{span_to} layer {layer}")
+
+        # ── Small block: remove single cell ───────────────────
+        else:
+            current_structure[position].pop()
+            print(f"DEBUG: Removed small block '{top_block}' "
+                f"from {position} layer {layer}")
+
+        return True, current_structure, current_spans
+
+    except Exception as e:
+        print(f"Error removing block: {e}")
+        return False, current_structure, current_spans
 
 class BuilderType(Enum):
     Base = "Base"
@@ -838,10 +966,23 @@ if __name__ == "__main__":
         oracle_moves= json.loads(huggingFaceRow["oracle_moves"]), 
         )
     
-    # print(f"  Builder move: {builder_move}")
+        print(f"  Builder move: {builder_move}")
 
-    # # ── Execute ───────────────────────────────────────
-    # if builder_move['action'] == 'clarify':
-    #     test = 0
-    # else:
-    #     success, progress_data, structurePlacement, sidePlacement, overall = game_state.execute_move(builder_move)
+        # ── Execute ───────────────────────────────────────
+        if builder_move['action'] == 'clarify':
+            test = 0
+        elif builder_move['action'] == 'place':
+            success, structure, spans = _place_block(
+                    currentStructure, 
+                    json.loads(huggingFaceRow["spans_before"]),
+                    builder_move["position"],
+                    builder_move["block"],
+                    builder_move["layer"],
+                    builder_move["span_to"])
+        elif builder_move['action'] == 'remove':
+            success, structure, spans = _remove_block(
+                    currentStructure, 
+                    json.loads(huggingFaceRow["spans_before"]),
+                    builder_move["position"],
+                    builder_move["layer"],
+                    builder_move["span_to"])
