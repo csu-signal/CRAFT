@@ -23,6 +23,95 @@ except ImportError:
  
 from agents.builder_tools import simulate_move
 
+def calculate_iou_board(current, target):
+        """
+        Calculate Intersection over Union (IoU) for block positions
+        """
+        intersection = 0
+        union = 0
+        
+        for coord in current.keys():
+            current_blocks = set(current[coord])
+            target_blocks = set(target[coord])
+            
+            intersection += len(current_blocks.intersection(target_blocks))
+            #print(f"I: {intersection} {current_blocks} {target_blocks}")
+            union += len(current_blocks.union(target_blocks))
+            #print(f"{union}")
+        
+        return intersection / union if union > 0 else 0.0
+
+def normalize_structure(structure):
+        """
+        Normalize structure format for comparison
+        Converts coordinate keys to tuples and handles missing positions
+        """
+        normalized = {}
+        
+        for i in range(3):
+            for j in range(3):
+                # Try both formats: with and without spaces
+                coord_key_spaces = f"({i}, {j})"
+                coord_key_no_spaces = f"({i},{j})"
+                coord_tuple = (i, j)
+                
+                if coord_key_no_spaces in structure:
+                    normalized[coord_tuple] = structure[coord_key_no_spaces]
+                elif coord_key_spaces in structure:
+                    normalized[coord_tuple] = structure[coord_key_spaces]
+                else:
+                    normalized[coord_tuple] = []
+        
+        return normalized
+
+def calculate_iou(list1: list[str], list2: list[str]) -> float:
+    """
+    Calculates the IoU for two lists of strings.
+
+    Args:
+        list1: The first list of strings.
+        list2: The second list of strings.
+
+    Returns:
+        The IoU as a float between 0 and 1.
+    """
+    set1 = set(list1)
+    set2 = set(list2)
+
+    intersection = len(set1.intersection(set2)) # or len(set1 & set2)
+    union = len(set1.union(set2))               # or len(set1 | set2)
+
+    if union == 0:
+        return 0.0  # Avoid division by zero if both sets are empty
+
+    return float(intersection) / float(union)
+
+def getParticalView(director, board):
+    partBoard = {}
+    if director == "D1":
+        for k in board:
+            if k != '(0,0)' and k != '(1,0)' and k != '(2,0)':
+                partBoard[k] = []
+            else:
+                partBoard[k] = board[k]
+        return partBoard
+    
+    if director == "D2":
+        for k in board:
+            if k != '(0,0)' and k != '(0,1)' and k != '(0,2)':
+                partBoard[k] = []
+            else:
+                partBoard[k] = board[k]
+        return partBoard
+        
+    if director == "D3":
+        for k in board:
+            if k != '(0,2)' and k != '(1,2)' and k != '(2,2)':
+                partBoard[k] = []
+            else:
+                partBoard[k] = board[k]
+        return partBoard
+
 def _encode_block(block_name) -> str:
         """Convert block name to encoded format"""
         # block_name is already in correct format (e.g., 'os', 'bs', 'ys')
@@ -77,7 +166,7 @@ def _place_block(current_structure, current_spans, position, block, layer, span_
             print(f"Error placing block: {e}")
             return False, current_structure, current_spans
     
-def _remove_block(current_structure, current_spans, position, layer, span_to=None) -> bool:
+def _remove_block(current_structure, current_spans, position, layer, span_to=None):
     """
     Remove the top block from position.
     If block is large, removes from both position and span partner atomically.
@@ -87,14 +176,14 @@ def _remove_block(current_structure, current_spans, position, layer, span_to=Non
 
         if len(stack) == 0:
             print(f"DEBUG: Cannot remove — stack at {position} is empty")
-            return False
+            return False, current_structure, current_spans
 
         if layer != len(stack) - 1:
             print(
                 f"DEBUG: Cannot remove layer {layer} — "
                 f"must remove top (layer {len(stack)-1}) first"
             )
-            return False
+            return False, current_structure, current_spans
 
         top_block = stack[-1]
 
@@ -102,7 +191,7 @@ def _remove_block(current_structure, current_spans, position, layer, span_to=Non
         if top_block.endswith('l'):
             if not span_to:
                 print(f"DEBUG: Large block removal requires span_to")
-                return False
+                return False, current_structure, current_spans
 
             neighbor_stack = current_structure.get(span_to, [])
 
@@ -929,8 +1018,10 @@ if __name__ == "__main__":
     # structure before 
     # as close as we can be to the existing prompt
     # saving off satisfication after new move (comparing to factual averages)
+    with open(f"/home/hannah/CRAFT/CRAFT/data/structures_dataset_20.json", 'r') as file:
+        structData = json.load(file)
 
-    folder_path = Path("/home/hannah/CRAFT/CRAFT/divergenceData/validation")
+    folder_path = Path("/home/hannah/CRAFT/CRAFT/divergenceData/train")
     aggregated_data = []
     ds = load_dataset("Abhijnan/craft-benchmark-lean")
 
@@ -943,8 +1034,11 @@ if __name__ == "__main__":
     builder_model_name = "gpt-4o"
     builder_agent = BuilderAgent(api_key=api_key, model_name=builder_model_name)
 
+    all_turns_counter = {}
+    count = 0
     for turn in aggregated_data:    
-        test = 0 
+        count += 1
+        print(f"Turn {count}/{len(aggregated_data)}") 
         #factual = turn[turn["builderSelected"]]
         counterfact = turn[turn["predicted"]]
 
@@ -952,12 +1046,17 @@ if __name__ == "__main__":
         turnIndex = counterfact["timestamp"] 
         structure = counterfact["structure"]   
         utterance = turn["predicted"] + ": " + counterfact["utterance"]  
-        currentStructure = counterfact["structureBefore"] 
-        director = counterfact["modelCombo"].split("+")[0].strip().lower()
+        currentStructure = json.loads(counterfact["structureBefore"].replace("\'", "\"")) 
+        director = counterfact["modelCombo"].split("+")[0].strip().replace("-", "").lower()
+        if(director == "deepseeklite"):
+            director = "deepseekv2lite"
 
         filtered_ds = ds.filter(lambda example: example["turn_number"] == turnIndex and
-                                example["structure_id"] == structure and example["director_model"] == director)
+                                example["structure_id"] == structure and example["director_model"].replace("-", "").lower() == director)
 
+        if(len(filtered_ds['train']) == 0):
+            print(f"Can't find value in dataset {turnIndex}, {structure},{director}")
+            continue
         huggingFaceRow = filtered_ds['train'][0]
         builder_move = builder_agent.generate_move(
         director_discussion=utterance,
@@ -968,10 +1067,9 @@ if __name__ == "__main__":
     
         print(f"  Builder move: {builder_move}")
 
+        structure = currentStructure
         # ── Execute ───────────────────────────────────────
-        if builder_move['action'] == 'clarify':
-            test = 0
-        elif builder_move['action'] == 'place':
+        if builder_move['action'] == 'place':
             success, structure, spans = _place_block(
                     currentStructure, 
                     json.loads(huggingFaceRow["spans_before"]),
@@ -986,3 +1084,39 @@ if __name__ == "__main__":
                     builder_move["position"],
                     builder_move["layer"],
                     builder_move["span_to"])
+
+        particalViewBoard = getParticalView(turn["predicted"], structure)
+        current_norm = normalize_structure(particalViewBoard)
+
+        for s in structData:
+            if(s['id'] == huggingFaceRow["structure_id"]):
+                targetStruct = s["structure"]
+                break
+
+        target_norm = normalize_structure(targetStruct)
+        iou_score = calculate_iou_board(current_norm, target_norm)
+
+        key = f"{counterfact["modelCombo"]}_{huggingFaceRow["structure_id"]}"
+        if(not all_turns_counter.__contains__(key)):
+            all_turns_counter[key] = []
+        all_turns_counter[key].append({
+            "turn": turnIndex,
+            "counterfactualDirector": turn["predicted"],
+            "utterance": utterance,
+            "structure_before": currentStructure,
+            "structure_after": structure,
+            "builder_move": builder_move,
+            "satisfaction": iou_score
+        })
+
+    for k in all_turns_counter:
+        with open(f"/home/hannah/CRAFT/CRAFT/gittenExperiments/counterfactuals/train/{k}.json", "a", encoding="utf-8") as f:
+                json.dump(
+                    all_turns_counter[k],
+                    f,
+                    indent=2,
+                    default=lambda obj: (
+                        obj.to_dict() if hasattr(obj, "to_dict") else str(obj)
+                    ),
+                )
+        

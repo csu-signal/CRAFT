@@ -1,0 +1,922 @@
+[
+  {
+    "turn": 20,
+    "counterfactualDirector": "D2",
+    "utterance": "D2: From my perspective, I see a large green block spanning (0,0) and (1,0) at layer 0, and a small orange block at (0,1) at layer 0. However, my target view has a small orange block in the bottom left corner of my bottom layer, and then a large orange block spanning the middle and right cells of my bottom layer. I need to correct the large green block spanning (0,0) and (1,0) at layer 0, which is already inconsistent with my target view. I also need to correct the small orange block at (0,1) at layer 0, which is not consistent with my target view. I also need to correct the large red block spanning (0,0) and (1,0) at layer 1, which is not consistent with my target view. I also need to check if the small orange block at (0,2) at layer 0 is consistent with my target view. My target view has an orange block in the bottom right corner, which is (0,2) at layer 0. This is already consistent with my target view. However, I need to check if the large yellow block spanning (0,2) and (1,2) at layer 0 is consistent with my target view. My target view has a small orange block at (0,2) and (1,2) at layer 0, not a large yellow block. I need to correct this. I also need to check if the small red block at (0,1) at layer 2 is consistent with my target view. My target view has a green block at (0,1) at layer 2, not a small red block. I need to correct this. I also need to check if the small green block at (0,2) at layer 2 is consistent with my target view. My target view",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "remove",
+      "position": "(0,0)",
+      "layer": 0,
+      "span_to": "(1,0)",
+      "confirmation": "Removing the large green block from the bottom-left and bottom-middle of D2's side as requested."
+    },
+    "satisfaction": 0.375
+  },
+  {
+    "turn": 18,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. I also need the builder to correct the right wall by placing a small green block in the bottom left corner of my bottom layer, and then stack another small green block next to it. I also need to check if the large red block spanning (0,0) and (1,0) at layer 1 is consistent with my target view. My target view has a small orange block at (0,0) and (0,1) at layer 1, not a large red block. I need to correct this. I also need to check if the small orange block at (0,1) at layer 0 is consistent with my target view. My target view has a small green block at (0,1) at layer 0, not a small orange block. I need to correct this. I also need to check if the large yellow block spanning (0,2) and (1,2) at layer 0 is consistent with my target view. My target view has a small orange block at (0,2) and (1,2) at layer 0, not a large yellow block. I need to correct this. I also need to check if the small orange block at (0,2) at layer 0 is consistent with my target view. My target view has an orange block in the bottom right corner, which is (0,2) at layer 0. This is already consistent with my target view. However, I need to check if the large yellow block spanning (0,2) and (1,2) at layer 0 is consistent with my target view. My target view has a small orange block at (0,2) and (1,2) at layer 0, not a large yellow block. I need to correct this.",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "remove",
+      "position": "(0,0)",
+      "layer": 1,
+      "span_to": "(1,0)",
+      "confirmation": "Removing the large red block spanning (0,0) and (1,0) at layer 1 as D1 indicated it should be replaced with small orange blocks."
+    },
+    "satisfaction": 0.3333333333333333
+  },
+  {
+    "turn": 17,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. I also need the builder to correct the right wall by placing a small green block in the bottom left corner of my bottom layer, and then stack another small green block next to it. I also need to check if the large red block spanning (0,0) and (1,0) at layer 1 is consistent with my target view. My target view has a small orange block at (0,0) and (0,1) at layer 1, not a large red block. I need to correct this. I also need to check if the small orange block at (0,1) at layer 0 is consistent with my target view. My target view has a small green block at (0,1) at layer 0, not a small orange block. I need to correct this. I also need to check if the large yellow block spanning (0,2) and (1,2) at layer 0 is consistent with my target view. My target view has a small orange block at (0,2) and (1,2) at layer 0, not a large yellow block. I need to correct this. I also need to check if the small orange block at (0,2) at layer 0 is consistent with my target view. My target view has an orange block in the bottom right corner, which is (0,2) at layer 0. This is already consistent with my target view. However, I need to check if the large yellow block spanning (0,2) and (1,2) at layer 0 is consistent with my target view. My target view has a small orange block at (0,2) and (1,2) at layer 0, not a large yellow block. I need to correct this.",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "remove",
+      "position": "(0,0)",
+      "layer": 1,
+      "span_to": "(1,0)",
+      "confirmation": "Removing the large red block spanning (0,0) and (1,0) at layer 1 as D1 indicated it should be replaced with small orange blocks."
+    },
+    "satisfaction": 0.3333333333333333
+  },
+  {
+    "turn": 16,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. I also need the builder to correct the right wall by placing a small green block in the bottom left corner of my bottom layer, and then stack another small green block next to it. I also need to check if the large red block spanning (0,0) and (1,0) at layer 1 is consistent with my target view. My target view has a small orange block at (0,0) and (0,1) at layer 1, not a large red block. I need to correct this. I also need to check if the small orange block at (0,1) at layer 0 is consistent with my target view. My target view has a small green block at (0,1) at layer 0, not a small orange block. I need to correct this. I also need to check if the large yellow block spanning (0,2) and (1,2) at layer 0 is consistent with my target view. My target view has a small orange block at (0,2) and (1,2) at layer 0, not a large yellow block. I need to correct this. I also need to check if the small orange block at (0,2) at layer 0 is consistent with my target view. My target view has an orange block in the bottom right corner, which is (0,2) at layer 0. This is already consistent with my target view. However, I need to check if the large yellow block spanning (0,2) and (1,2) at layer 0 is consistent with my target view. My target view has a small orange block at (0,2) and (1,2) at layer 0, not a large yellow block. I need to correct this.",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "remove",
+      "position": "(0,0)",
+      "layer": 1,
+      "span_to": "(1,0)",
+      "confirmation": "Removing the large red block spanning (0,0) and (1,0) at layer 1 as D1 indicated it should be replaced with small orange blocks."
+    },
+    "satisfaction": 0.3333333333333333
+  },
+  {
+    "turn": 13,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: ",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "clarify",
+      "clarification": "Could not parse response: D1: Could you please place a large blue block across my middle and right cells on the top layer?"
+    },
+    "satisfaction": 0.3333333333333333
+  },
+  {
+    "turn": 12,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: ",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os",
+        "rl"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "place",
+      "block": "rl",
+      "position": "(1,0)",
+      "layer": 2,
+      "span_to": "(2,0)",
+      "confirmation": "Placing large red block across the middle and right cells of D1's top layer as requested."
+    },
+    "satisfaction": 0.3333333333333333
+  },
+  {
+    "turn": 11,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. Can the builder place a red block in the middle left cell of my middle layer? I also need the builder to correct the right wall by placing a small green block in the bottom left corner of my bottom layer, and then stack another small green block next to it. And, I need the builder to remove the large red block from my middle layer. And, I need the builder to correct the middle layer by placing a small orange block in the middle left cell of my middle layer. I also need to check if the large red block spanning (0,0) and (1,0) at layer 1 is consistent with my target view. My target view has a small orange block at (0,0) and (0,1) at layer 1, not a large red block. I need to correct this. I also need to check if the small orange block at (0,1) at layer 0 is consistent with my target view. My target view has a small green block at (0,1) at layer 0, not a small orange block. I need to correct this. I also need to check if the large yellow block spanning (0,2) and (1,2) at layer 0 is consistent with my target view. My target view has a small orange block at (0,2) and (1,2) at layer 0, not a large yellow block. I need to correct this. I also need to check if the small orange block at (0,2) at layer 0 is consistent with my target view. My target view has an orange block in the bottom right corner, which is (0,2) at layer 0. This is already consistent with my target view. However, I need to check if the large yellow",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl",
+        "ys"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs",
+        "os"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "place",
+      "block": "os",
+      "position": "(2,0)",
+      "layer": 1,
+      "span_to": null,
+      "confirmation": "Placing a small orange block at the middle left cell of D1's middle layer as requested."
+    },
+    "satisfaction": 0.2916666666666667
+  },
+  {
+    "turn": 8,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. Can the builder place a red block in the middle left cell of my middle layer? I also need the builder to correct the right wall by placing a small green block in the bottom left corner of my bottom layer, and then stack another small green block next to it. And, I need the builder to remove the large red block from my middle layer. And, I need the builder to correct the middle layer by placing a small orange block in the middle left cell of my middle layer.",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os",
+        "yl",
+        "rs"
+      ],
+      "(0,2)": [
+        "os",
+        "yl",
+        "gs"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "place",
+      "block": "gs",
+      "position": "(0,2)",
+      "layer": 2,
+      "span_to": null,
+      "confirmation": "Placing a small green block at the bottom-left corner of D3's bottom layer as requested by D1."
+    },
+    "satisfaction": 0.16666666666666666
+  },
+  {
+    "turn": 7,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. Can the builder place a red block in the middle left cell of my middle layer? I also need the builder to correct the right wall by placing a small green block in the bottom left corner of my bottom layer, and then stack another small green block next to it. And, I need the builder to remove the large red block from my middle layer.",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os",
+        "yl"
+      ],
+      "(0,2)": [
+        "os",
+        "yl"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os",
+        "yl"
+      ],
+      "(0,2)": [
+        "os",
+        "yl"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "place",
+      "block": "gs",
+      "position": "(2,0)",
+      "layer": 0,
+      "span_to": null,
+      "confirmation": "Placing small green block at the bottom-left corner of D1's bottom layer as requested."
+    },
+    "satisfaction": 0.20833333333333334
+  },
+  {
+    "turn": 6,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. Can the builder place a red block in the middle left cell of my middle layer? I also need the builder to correct the right wall by placing a small green block in the bottom left corner of my bottom layer, and then stack another small green block next to it.",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [
+        "os"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [
+        "os"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [
+        "gs"
+      ],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "place",
+      "block": "gs",
+      "position": "(2,0)",
+      "layer": 0,
+      "span_to": null,
+      "confirmation": "Placing small green block at the bottom-left of D1's bottom layer as requested."
+    },
+    "satisfaction": 0.20833333333333334
+  },
+  {
+    "turn": 5,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. Can the builder place a red block in the middle left cell of my middle layer? I also need the builder to correct the right wall by placing a small green block in the bottom left corner of my bottom layer, and then stack another small green block next to it.",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [
+        "os"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [
+        "os"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "place",
+      "block": "rl",
+      "position": "(0,0)",
+      "layer": 1,
+      "span_to": "(1,0)",
+      "confirmation": "Placing a large red block across the left and middle cells of D1's middle layer as requested."
+    },
+    "satisfaction": 0.16666666666666666
+  },
+  {
+    "turn": 4,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. Can the builder place a red block in the middle left cell of my middle layer? I also need the builder to correct the right wall by placing a small green block in the bottom left corner of my bottom layer, and then stack another small green block next to it.",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [
+        "os"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [
+        "os"
+      ],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "place",
+      "block": "rl",
+      "position": "(0,0)",
+      "layer": 1,
+      "span_to": "(1,0)",
+      "confirmation": "Placing large red block across the left and middle cells of D1's middle layer as requested."
+    },
+    "satisfaction": 0.16666666666666666
+  },
+  {
+    "turn": 3,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: I see a green block at the bottom left corner, which is correct. Now, I need a red block next to it in the middle layer. Can the builder place a red block in the middle left cell of my middle layer?",
+    "structure_before": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl",
+        "rl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [],
+      "(1,0)": [
+        "gl",
+        "rl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "place",
+      "block": "rl",
+      "position": "(0,0)",
+      "layer": 1,
+      "span_to": "(1,0)",
+      "confirmation": "Placing large red block across the left and middle cells of D1's middle layer as requested."
+    },
+    "satisfaction": 0.16666666666666666
+  },
+  {
+    "turn": 2,
+    "counterfactualDirector": "D1",
+    "utterance": "D1: ",
+    "structure_before": {
+      "(0,0)": [
+        "gl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [],
+      "(1,0)": [
+        "gl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "structure_after": {
+      "(0,0)": [
+        "gl"
+      ],
+      "(0,1)": [
+        "os"
+      ],
+      "(0,2)": [],
+      "(1,0)": [
+        "gl"
+      ],
+      "(1,1)": [],
+      "(1,2)": [],
+      "(2,0)": [],
+      "(2,1)": [],
+      "(2,2)": []
+    },
+    "builder_move": {
+      "action": "place",
+      "block": "os",
+      "position": "(0,1)",
+      "layer": 0,
+      "span_to": null,
+      "confirmation": "Placing small orange block at the middle cell of D2's bottom layer as requested."
+    },
+    "satisfaction": 0.08333333333333333
+  }
+]
