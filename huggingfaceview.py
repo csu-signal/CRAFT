@@ -8,7 +8,10 @@ director = modelCombo.split("+")[0].strip().replace("-", "").lower()
 if(director == "deepseeklite"):
     director = "deepseekv2lite"
 ds = load_dataset("Abhijnan/craft-benchmark-lean")
-filtered_ds = ds.filter(lambda example: example["structure_id"] == structure and example["director_model"].replace("-", "").lower() == director)
+#filtered_ds = ds.filter(lambda example: example["structure_id"] == structure and example["director_model"].replace("-", "").lower() == director)
+filtered_ds = ds.filter(lambda example: example["builder_followed_oracle"] == True and example["correct_structure_placement"] == True and example["correct_side_placement"] == True)
+print(len(ds["train"]))
+print(len(filtered_ds["train"]))
 
 if(len(filtered_ds['train']) != 0):
     with open("filteredData.txt", "w", encoding="utf-8") as file:
