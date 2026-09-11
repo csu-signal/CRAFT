@@ -590,9 +590,9 @@ if __name__ == "__main__":
     parser.add_argument("--mode",           type=str, default="local",
                         choices=["api", "local"],
                         help="Director mode: 'api' for frontier models, 'local' for open-weight")
-    parser.add_argument("--director",       type=str, default=None,
+    parser.add_argument("--director",       type=str, default="qwen38-27b",
                         help="Specific director model to run (api: model name, local: key from LOCAL_MODELS)")
-    parser.add_argument("--builder",        type=str, default="gpt-4o-mini",
+    parser.add_argument("--builder",        type=str, default="gpt-5.4-mini",
                         help="Builder model name")
     parser.add_argument("--builderPrompt",  type=str, default="Literal1",
                             help="Builder prompt add in name")
@@ -610,7 +610,7 @@ if __name__ == "__main__":
                         help="Number of oracle moves to show per turn")
     parser.add_argument("--no_tools",       action="store_true",
                         help="Disable builder tool use (simulate_move)")
-    parser.add_argument("--structures",     type=str, default="0,1,2,3,4,5,6,7,8,9",
+    parser.add_argument("--structures",     type=str, default=None,
                         help="Comma-separated structure indices to run (e.g. '0,1,5'). Default: all")
     parser.add_argument("--quantize",       type=str, default=None,
                         choices=["4bit", "8bit"],
@@ -643,8 +643,9 @@ if __name__ == "__main__":
         f"{oracle_tag}_{tools_tag}_{run_tag}")
 
     LOCAL_MODELS = {
-        "mistral-7b":       "mistralai/Mistral-7B-Instruct-v0.3",
-        "qwen-7b":          "Qwen/Qwen2.5-7B-Instruct",
+        #"mistral-7b":       "mistralai/Mistral-7B-Instruct-v0.3",
+        "qwen38-27b":        "Qwen/Qwen3.8-27B"
+        #"qwen-7b":          "Qwen/Qwen2.5-7B-Instruct",
         #"llama-8b":         "meta-llama/Llama-3.1-8B-Instruct",
         #"qwen-14b":         "Qwen/Qwen2.5-14B-Instruct",
         #"qwen-32b":         "Qwen/Qwen2.5-32B-Instruct",
@@ -657,7 +658,7 @@ if __name__ == "__main__":
     #     # "qwen-7b":          "/data/open-weight-llms/models/qwen-7b",
     #     # "qwen7b_dpo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
     #     # "qwen7b_sft_r32_builder" :"/data/open-weight-llms/models/qwen-7b",
-    #     "qwen7b_ipo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
+    #     # "qwen7b_ipo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
         
     #     # "qwen-14b":         "/data/open-weight-llms/models/qwen-14b",
     #     # "qwen-32b":         "/data/open-weight-llms/models/qwen-32b",
@@ -665,7 +666,7 @@ if __name__ == "__main__":
     #     # "llama-8b":         "/data/open-weight-llms/models/llama-8b",
     #     # "llama-8b_dpo_r32_from_sft":  "/data/open-weight-llms/models/llama-8b",
     #     # "llama-8b_r32_baseline": "/data/open-weight-llms/models/llama-8b",
-    #     "llama8b_ipo_r32_from_sft" : "/data/open-weight-llms/models/llama-8b"
+    #     # "llama8b_ipo_r32_from_sft" : "/data/open-weight-llms/models/llama-8b"
 
     #     # "mistral-7b":       "/data/open-weight-llms/models/mistral-7b",
     #     # "gemma-9b":         "/data/open-weight-llms/models/gemma-9b",
@@ -674,23 +675,24 @@ if __name__ == "__main__":
     # }
 
     API_DIRECTOR_MODELS = [
-        "gemini-3-flash-preview",
-        "gpt-4o",
+        #"gemini-3-flash-preview",
+        #"gpt-4o",
         #"gpt-5.4-mini",
-        "gpt-4o-mini",
+        #"gpt-4o-mini",
         #"gpt-4.1-mini",
         #"gemini-2.5-flash",
         #"gemini-2.5-flash-lite",
-        "gemini-3.1-flash-lite-preview",
+        #"gemini-3.1-flash-lite-preview",
         #"claude-haiku-4-5",
         #"claude-sonnet-4-6",
     ]
 
     MAX_TOKENS_BY_MODEL = {
-        "gpt-5":                          2000,
+        "gpt-5.4-mini":                   2000,
         "gpt-4o-mini":                    2000,
         "gpt-4.1-mini":                   2000,
         "gpt-4o":                         2000,
+        "qwen38-27b":                     2000,
         "claude-haiku-4-5":               3000,
         "claude-sonnet-4-6":              3000,
         "gemini-2.5-flash":               3000,
