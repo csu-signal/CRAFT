@@ -560,15 +560,26 @@ WORKFLOW:
 
             system_content = system_content_oracle if oracle_moves else system_content_base
             # "You are a Builder. Respond with exactly one line in the specified format. No additional text or explanation. OLD block, slight change. 
-            completion = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_content},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,  # Lower temperature for more consistent formatting
-                max_tokens=250    # Shorter to discourage extra text
-            )
+            if(self.model_name == "gpt-5.4-mini"):
+                completion = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1,  # Lower temperature for more consistent formatting
+                    max_completion_tokens=250    # Shorter to discourage extra text
+                )
+            else:
+                completion = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.1,  # Lower temperature for more consistent formatting
+                    max_tokens=250    # Shorter to discourage extra text
+                )
             
             if completion and completion.choices:
                 response_text = completion.choices[0].message.content.strip()

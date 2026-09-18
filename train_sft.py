@@ -1,12 +1,12 @@
 """
-train_sft_craft.py
+train_sft_dpip.py
 -----------------
-SFT training script for CRAFT director models using TRL + PEFT LoRA.
+SFT training script for DPIP director models using TRL + PEFT LoRA.
 Targets Qwen-7B-Instruct or Llama-3-8B-Instruct from local paths.
 
 Usage:
-    python train_sft_craft.py --model qwen-7b
-    python train_sft_craft.py --model llama-8b --lora_r 64
+    python train_sft_dpip.py --model qwen-7b
+    python train_sft_dpip.py --model llama-8b --lora_r 64
 """
 
 import argparse
@@ -33,7 +33,7 @@ parser.add_argument("--model",          type=str,   default="qwen-7b",
                     choices=list(LOCAL_MODELS.keys()))
 parser.add_argument("--train_file",     type=str,   default="train_sft.jsonl")
 parser.add_argument("--eval_file",      type=str,   default="valid_sft.jsonl")
-parser.add_argument("--output_dir",     type=str,   default="craft_sft_output")
+parser.add_argument("--output_dir",     type=str,   default="dpip_sft_output")
 parser.add_argument("--run_name",       type=str,   default=None)
 
 # Training hyperparams
@@ -67,11 +67,11 @@ args = parser.parse_args()
 # ── Derived config ────────────────────────────────────────────────────────────
 
 model_path = LOCAL_MODELS[args.model]
-run_name   = args.run_name or f"craft_sft_{args.model}_r{args.lora_r}"
+run_name   = args.run_name or f"dpip_sft_{args.model}_r{args.lora_r}"
 output_dir = os.path.join(args.output_dir, run_name)
 
 print(f"\n{'='*60}")
-print(f"  CRAFT SFT Training")
+print(f"  DPIP SFT Training")
 print(f"  model:      {args.model} ({model_path})")
 print(f"  output_dir: {output_dir}")
 print(f"  epochs:     {args.num_epochs}  lr: {args.lr}")
@@ -422,7 +422,7 @@ print(f"\nDone. Model saved to {output_dir}")
 #     --logging_steps 5
 
 # # Qwen-7b epoch-level eval — cleaner for longer runs, saves more frequently
-# python train_sft_craft.py \
+# python train_sft_dpip.py \
 #     --model qwen-7b \
 #     --train_file train_sft.jsonl \
 #     --eval_file valid_sft.jsonl \

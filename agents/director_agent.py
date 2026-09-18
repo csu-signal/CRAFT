@@ -74,13 +74,16 @@ class DirectorAgent:
         self.run = run 
           # deterministic archetype: same structure+director+run → same archetype
         # independent of global random state and model choice
-        director_num = {"D1": 0, "D2": 1, "D3": 2}.get(director_id, 0)
-        seed = hash((structure_index, director_num, run)) % (2**32)
-        rng  = random.Random(seed)
-        self.archetype   = rng.choice(DirectorAgent.TYPES)
+        # director_num = {"D1": 0, "D2": 1, "D3": 2}.get(director_id, 0)
+        # seed = hash((structure_index, director_num, run)) % (2**32)
+        # rng  = random.Random(seed)
+        #self.archetype   = rng.choice(DirectorAgent.TYPES)
+        with open(f'/home/hannah/CRAFT/CRAFT/previousRunData/dpip_structure_{structure_index + 1:03d}_{run}.json', 'r', encoding='utf-8') as file:
+            data = json.load(file)
+            self.archetype = data['games'][0][f'{director_id} Archetype']
         self.personality = DirectorAgent.ARCHETYPES[self.archetype]
         print(f"  {director_id} archetype: {self.archetype} "
-            f"(structure={structure_index}, run={run}, seed={seed})")
+            f"(structure={structure_index}, run={run})")
             
         # self.archetype = DirectorAgent.TYPES[random.randint(0, 4)]
         # self.personality = DirectorAgent.ARCHETYPES[self.archetype]
@@ -612,10 +615,14 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
                 {"role": "system", "content": f"You are Director {self.director_id} in a collaborative LEGO construction task."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
-            max_tokens=max_tokens,
+            temperature=0.7
         )
-        
+
+        if(self.model_name == "gpt-5.4-mini"):
+            kwargs["max_completion_tokens"] = max_tokens
+        else:
+            kwargs["max_tokens"] = max_tokens
+
         # Gemini thinking models consume tokens internally before output
         # disable to avoid hitting max_tokens before visible response starts
         # if "gemini" in self.model_name.lower():

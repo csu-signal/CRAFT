@@ -1,7 +1,7 @@
 """
 train_dpo.py
 -----------------
-DPO training script for CRAFT director models using TRL + PEFT LoRA.
+DPO training script for DPIP director models using TRL + PEFT LoRA.
 Targets Qwen-7B-Instruct from local paths.
 
 Data format expected (from prep_dpo_data.py):
@@ -9,20 +9,20 @@ Data format expected (from prep_dpo_data.py):
     rejected: [system, user, rejected_assistant]
 
 Usage:
-    python train_dpo_craft.py --model qwen-7b
+    python train_dpo_dpip.py --model qwen-7b
 
     # With custom dataset
-    python train_dpo_craft.py \
+    python train_dpo_dpip.py \
         --model qwen-7b \
         --train_file sft_datasets/train_dpo.jsonl \
         --eval_file  sft_datasets/valid_dpo.jsonl
 
     # Full run example
-    CUDA_VISIBLE_DEVICES=1 python train_dpo_craft.py \
+    CUDA_VISIBLE_DEVICES=1 python train_dpo_dpip.py \
         --model qwen-7b \
         --train_file sft_datasets/train_dpo.jsonl \
         --eval_file  sft_datasets/valid_dpo.jsonl \
-        --output_dir craft_dpo_output \
+        --output_dir dpip_dpo_output \
         --run_name qwen7b_dpo_r32_baseline \
         --num_epochs 3 \
         --lr 5e-6 \
@@ -45,7 +45,6 @@ from datasets import Dataset, DatasetDict, load_from_disk, load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model,PeftModel
 from trl import DPOTrainer, DPOConfig
-from trl import get_dataset, get_kbit_device_map, get_peft_config, get_quantization_config
  
 # ── Local model paths ─────────────────────────────────────────────────────────
 
@@ -77,7 +76,7 @@ parser.add_argument("--sft_checkpoint_path",          type=str,   default="sft_t
           
 parser.add_argument("--train_file",     type=str,   default="sft_datasets/train_dpo.jsonl")
 parser.add_argument("--eval_file",      type=str,   default="sft_datasets/valid_dpo.jsonl")
-parser.add_argument("--output_dir",     type=str,   default="craft_dpo_output")
+parser.add_argument("--output_dir",     type=str,   default="dpip_dpo_output")
 parser.add_argument("--run_name",       type=str,   default=None)
 
 # Training hyperparams
@@ -117,11 +116,11 @@ args = parser.parse_args()
 # ── Derived config ────────────────────────────────────────────────────────────
 
 model_path = LOCAL_MODELS[args.model]
-run_name   = args.run_name or f"craft_dpo_{args.model}_r{args.lora_r}"
+run_name   = args.run_name or f"dpip_dpo_{args.model}_r{args.lora_r}"
 output_dir = os.path.join(args.output_dir, run_name)
 
 print(f"\n{'='*60}")
-print(f"  CRAFT DPO Training")
+print(f"  DPIP DPO Training")
 print(f"  model:      {args.model} ({model_path})")
 print(f"  output_dir: {output_dir}")
 print(f"  epochs:     {args.num_epochs}  lr: {args.lr}  beta: {args.beta}")
@@ -348,6 +347,8 @@ for split in ["train", "eval"]:
 
 
 # ── DPO config ────────────────────────────────────────────────────────────────
+total_steps = (len(dataset['train']) / args.batch_size) * args.num_epochs
+warmup_steps = int(total_steps * args.warmup_ratio)  # e.g. 0.1 * 1000 = 100
 
 dpo_config = DPOConfig(
     # Output
@@ -359,7 +360,7 @@ dpo_config = DPOConfig(
     per_device_train_batch_size=args.batch_size,
     gradient_accumulation_steps=args.grad_accum,
     learning_rate=args.lr,
-    warmup_ratio=args.warmup_ratio,
+    warmup_steps=warmup_steps,
     weight_decay=args.weight_decay,
     lr_scheduler_type="cosine",
     bf16=True,
@@ -439,7 +440,7 @@ print(f"\nDone. Model saved to {output_dir}")
 #     --model qwen-7b \
 #     --train_file sft_datasets/train_dpo.jsonl \
 #     --eval_file sft_datasets/valid_dpo.jsonl \
-#     --output_dir craft_dpo_output \
+#     --output_dir dpip_dpo_output \
 #     --run_name qwen7b_dpo_r32_baseline \
 #     --num_epochs 3 \
 #     --lr 5e-6 \
@@ -460,7 +461,7 @@ print(f"\nDone. Model saved to {output_dir}")
 #     --model qwen-7b \
 #     --train_file sft_datasets/train_dpo.jsonl \
 #     --eval_file sft_datasets/valid_dpo.jsonl \
-#     --output_dir craft_dpo_preference_builder_fullrun \
+#     --output_dir dpip_dpo_preference_builder_fullrun \
 #     --run_name qwen7b_dpo_r32_from_sft \
 #     --sft_checkpoint_path sft_testing/qwen7b_r32_baseline/checkpoint-369 \
 #     --num_epochs 4 \
@@ -485,7 +486,7 @@ print(f"\nDone. Model saved to {output_dir}")
 #     --model qwen-7b \
 #     --train_file dpip_director_dpo_temporal/train_dpo.jsonl \
 #     --eval_file dpip_director_dpo_temporal/valid_dpo.jsonl \
-#     --output_dir craft_dpo_temporal_preference_builder \
+#     --output_dir dpip_dpo_temporal_preference_builder \
 #     --run_name qwen7b_dpo_r32_from_sftpref_temporal \
 #     --sft_checkpoint_path sft_testing/qwen7b_r32_baseline/checkpoint-369 \
 #     --num_epochs 4 \
@@ -512,7 +513,7 @@ print(f"\nDone. Model saved to {output_dir}")
 #     --model qwen-7b \
 #     --train_file sft_datasets/train_dpo.jsonl \
 #     --eval_file sft_datasets/valid_dpo.jsonl \
-#     --output_dir craft_dpo_output_qwen \
+#     --output_dir dpip_dpo_output_qwen \
 #     --run_name qwen7b_dpo_r32_from_sft \
 #     --sft_checkpoint_path sft_testing/qwen7b_r32_baseline/checkpoint-369 \
 #     --num_epochs 20 \

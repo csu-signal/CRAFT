@@ -89,7 +89,7 @@ def run_craft_experiments(
     api_key="None",
     max_turns=15,
     output_dir="craft_results",
-    use_common_ground=False, 
+    use_common_ground=True, 
     run = 1,
     lastPartType = None,
     shared_model = None, 
@@ -587,10 +587,10 @@ if __name__ == "__main__":
     load_dotenv()
 
     parser = argparse.ArgumentParser(description="CRAFT Runner")
-    parser.add_argument("--mode",           type=str, default="local",
+    parser.add_argument("--mode",           type=str, default="api",
                         choices=["api", "local"],
                         help="Director mode: 'api' for frontier models, 'local' for open-weight")
-    parser.add_argument("--director",       type=str, default="qwen38-27b",
+    parser.add_argument("--director",       type=str, default="gpt-5.4-mini", #qwen3.8-27b
                         help="Specific director model to run (api: model name, local: key from LOCAL_MODELS)")
     parser.add_argument("--builder",        type=str, default="gpt-5.4-mini",
                         help="Builder model name")
@@ -602,7 +602,7 @@ if __name__ == "__main__":
                         help="Output directory (default: auto-generated from builder model)")
     parser.add_argument("--turns",          type=int, default=20,
                         help="Max turns per game")
-    parser.add_argument("--run",            type=int, default=3,
+    parser.add_argument("--run",            type=int, default=1,
                         help="Run index for deterministic seeding")
     parser.add_argument("--oracle",         action="store_true",
                         help="Enable oracle candidate moves for builder")
@@ -640,11 +640,12 @@ if __name__ == "__main__":
     OUTPUT_DIR = args.output or (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
-        f"{oracle_tag}_{tools_tag}_{run_tag}")
+        f"{oracle_tag}_{tools_tag}_{run_tag}_{BUILDER_PROMPT}")
 
     LOCAL_MODELS = {
         #"mistral-7b":       "mistralai/Mistral-7B-Instruct-v0.3",
-        "qwen38-27b":        "Qwen/Qwen3.8-27B"
+        #"qwen3.8-27b":        "Qwen/Qwen3.8-27B",
+        "qwen3-9b":            "Qwen/Qwen3.5-9B"
         #"qwen-7b":          "Qwen/Qwen2.5-7B-Instruct",
         #"llama-8b":         "meta-llama/Llama-3.1-8B-Instruct",
         #"qwen-14b":         "Qwen/Qwen2.5-14B-Instruct",
@@ -692,7 +693,7 @@ if __name__ == "__main__":
         "gpt-4o-mini":                    2000,
         "gpt-4.1-mini":                   2000,
         "gpt-4o":                         2000,
-        "qwen38-27b":                     2000,
+        "qwen3.8-27b":                    2000,
         "claude-haiku-4-5":               3000,
         "claude-sonnet-4-6":              3000,
         "gemini-2.5-flash":               3000,
@@ -739,7 +740,11 @@ if __name__ == "__main__":
 
     def run_all_structures(director_model_name, shared_model=None, shared_tokenizer=None):
         for structure_index in structure_indices:
-            partType = "empty"
+            with open(f'/home/hannah/CRAFT/CRAFT/previousRunData/dpip_structure_{structure_index + 1:03d}_{RUN}.json', 'r', encoding='utf-8') as file:
+                data = json.load(file)
+                partType = data['games'][0]['partialCompletionCategory']
+                
+            #partType = "empty"
             print(f"\n  [{director_model_name}] structure={structure_index}/{n_structures-1} "
                   f"partType={partType}")
             try:
@@ -751,7 +756,7 @@ if __name__ == "__main__":
                     api_key=api_key,
                     max_turns=MAX_TURNS,
                     output_dir=OUTPUT_DIR,
-                    use_common_ground=False,
+                    use_common_ground=True,
                     run=RUN,
                     lastPartType=partType,
                     shared_model=shared_model,
