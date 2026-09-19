@@ -1021,7 +1021,7 @@ if __name__ == "__main__":
     with open(f"/home/hannah/CRAFT/CRAFT/data/structures_dataset_20.json", 'r') as file:
         structData = json.load(file)
 
-    folder_path = Path("/home/hannah/CRAFT/CRAFT/divergenceData/train")
+    folder_path = Path("/home/hannah/CRAFT/CRAFT/divergenceData_policy_seed42_kl0.1_closs0.01_nosamp_hpt0.4/validation")
     aggregated_data = []
     ds = load_dataset("Abhijnan/craft-benchmark-lean")
 
@@ -1040,7 +1040,7 @@ if __name__ == "__main__":
         count += 1
         print(f"Turn {count}/{len(aggregated_data)}") 
         #factual = turn[turn["builderSelected"]]
-        counterfact = turn[turn["predicted"]]
+        counterfact = turn[turn["predicted"] + "_message"]
 
         available_blocks = ["gs", "gl", "bs", "bl", "rs", "rl", "ys", "yl", "os", "ol"]
         turnIndex = counterfact["timestamp"] 
@@ -1086,7 +1086,8 @@ if __name__ == "__main__":
                     builder_move["span_to"])
 
         particalViewBoard = getParticalView(turn["predicted"], structure)
-        current_norm = normalize_structure(particalViewBoard)
+        partical_norm = normalize_structure(particalViewBoard)
+        full_structure_norm = normalize_structure(structure)
 
         for s in structData:
             if(s['id'] == huggingFaceRow["structure_id"]):
@@ -1094,9 +1095,11 @@ if __name__ == "__main__":
                 break
 
         target_norm = normalize_structure(targetStruct)
-        iou_score = calculate_iou_board(current_norm, target_norm)
+        iou_score_particial = calculate_iou_board(partical_norm, target_norm)
+        iou_score_full = calculate_iou_board(full_structure_norm, target_norm)
 
-        key = f"{counterfact["modelCombo"]}_{huggingFaceRow["structure_id"]}"
+
+        key = f"{counterfact['modelCombo']}_{huggingFaceRow['structure_id']}"
         if(not all_turns_counter.__contains__(key)):
             all_turns_counter[key] = []
         all_turns_counter[key].append({
@@ -1106,11 +1109,12 @@ if __name__ == "__main__":
             "structure_before": currentStructure,
             "structure_after": structure,
             "builder_move": builder_move,
-            "satisfaction": iou_score
+            "satisfaction_full": iou_score_full,
+            "satisfaction_partial": iou_score_particial
         })
 
     for k in all_turns_counter:
-        with open(f"/home/hannah/CRAFT/CRAFT/gittenExperiments/counterfactuals/train/{k}.json", "a", encoding="utf-8") as f:
+        with open(f"/home/hannah/CRAFT/CRAFT/gittenExperiments/counterfactuals/divergenceData_policy_seed42_kl0.1_closs0.01_nosamp_hpt0.4/{k}.json", "a", encoding="utf-8") as f:
                 json.dump(
                     all_turns_counter[k],
                     f,
