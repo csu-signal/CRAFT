@@ -7,11 +7,8 @@ from matplotlib import pyplot as plt
 import pandas as pd
 
 if __name__ == "__main__":
-    validationPath = Path("/home/hannah/CRAFT/CRAFT/gittenExperiments/counterfactuals/validation")
-    trainPath = Path("/home/hannah/CRAFT/CRAFT/gittenExperiments/counterfactuals/train")
+    validationPath = Path("/home/hannah/CRAFT/CRAFT/gittenExperiments/counterfactuals/divergenceData_policy_seed42_kl0.1_closs0.01_nosamp_hpt0.4")
     validationData = []
-    trainData = []
-    fullData = []
     ds = load_dataset("Abhijnan/craft-benchmark-lean")
 
     for file_path in validationPath.glob("*.json"):
@@ -20,46 +17,51 @@ if __name__ == "__main__":
             for d in data: 
                 d["modelCombo"] =  file_path.name.split("_")[0] 
             validationData.extend(data)
-            fullData.extend(data)
 
-    for file_path in trainPath.glob("*.json"):
-        with open(file_path, "r", encoding="utf-8") as file:
-            data = json.load(file) 
-            for d in data: 
-                d["modelCombo"] =  file_path.name.split("_")[0] 
-            trainData.extend(data)
-            fullData.extend(data)
-
-    validationSat = 0
-    validationTurnWise = {}
+    validationSatP = 0
+    validationSatF = 0
+    validationTurnWiseP = {}
+    validationTurnWiseF = {}
     validationModelWise = {}
     for turn in validationData:   
-        validationSat += turn["satisfaction"]
+        validationSatP += turn["satisfaction_partial"]
+        validationSatF += turn["satisfaction_full"]
 
         turnKey = turn["turn"]
         modelCombo = turn["modelCombo"].split("+")[0].strip().lower()
-        sat = turn["satisfaction"]
+        satP = turn["satisfaction_partial"]
+        satF = turn["satisfaction_full"]
 
-        if turnKey in validationTurnWise and isinstance(validationTurnWise[turnKey], list):
-            validationTurnWise[turnKey].append(sat)
+        if turnKey in validationTurnWiseP and isinstance(validationTurnWiseP[turnKey], list):
+            validationTurnWiseP[turnKey].append(satP)
+            validationTurnWiseF[turnKey].append(satF)
         else:
-            validationTurnWise[turnKey] = [sat]
+            validationTurnWiseP[turnKey] = [satP]
+            validationTurnWiseF[turnKey] = [satF]
 
         if modelCombo in validationModelWise and isinstance(validationModelWise[modelCombo], list):
-            validationModelWise[modelCombo].append(sat)
+            validationModelWise[modelCombo].append(satP)
         else:
-            validationModelWise[modelCombo] = [sat]
+            validationModelWise[modelCombo] = [satP]
 
     print(f"Count Validation: {len(validationData)}")
     if(len(validationData) != 0):
-        print(f"Average Validation Satisfaction: {round(validationSat / len(validationData), 3)}\n")
-        validationTurnWise = dict(sorted(validationTurnWise.items()))
-        valTurnAverages = {
+        print(f"Average Validation Partial Satisfaction: {round(validationSatP / len(validationData), 3)}\n")
+        print(f"Average Validation Full Satisfaction: {round(validationSatF / len(validationData), 3)}\n")
+        validationTurnWiseP = dict(sorted(validationTurnWiseP.items()))
+        validationTurnWiseF = dict(sorted(validationTurnWiseF.items()))
+        valTurnAveragesP = {
             key: (round(sum(values) / len(values), 3)) if values else 0.0 
-            for key, values in validationTurnWise.items()
+            for key, values in validationTurnWiseP.items()
         }
 
-        print(valTurnAverages)
+        valTurnAveragesF = {
+                    key: (round(sum(values) / len(values), 3)) if values else 0.0 
+                    for key, values in validationTurnWiseF.items()
+                }
+
+        print(valTurnAveragesP)
+        print(valTurnAveragesF)
         print("\n")
 
         valModelWiseAverages = {
@@ -71,92 +73,15 @@ if __name__ == "__main__":
 
     #########################################################
 
-    trainSat = 0
-    trainTurnWise = {}
-    trainModelWise = {}
-    for turn in trainData:   
-        trainSat += turn["satisfaction"]
-
-        turnKey = turn["turn"]
-        modelCombo = turn["modelCombo"].split("+")[0].strip().lower()
-        sat = turn["satisfaction"]
-
-        if turnKey in trainTurnWise and isinstance(trainTurnWise[turnKey], list):
-            trainTurnWise[turnKey].append(sat)
-        else:
-            trainTurnWise[turnKey] = [sat]
-
-        if modelCombo in trainModelWise and isinstance(trainModelWise[modelCombo], list):
-            trainModelWise[modelCombo].append(sat)
-        else:
-            trainModelWise[modelCombo] = [sat]
-
-    print(f"\nCount Train: {len(trainData)}")
-    if(len(trainData) != 0):
-        print(f"Average Train Satisfaction: {round(trainSat / len(trainData), 3)}\n")
-        trainTurnWise = dict(sorted(trainTurnWise.items()))
-        trainTurnAverages = {
-            key: (round(sum(values) / len(values), 3)) if values else 0.0 
-            for key, values in trainTurnWise.items()
-        }
-
-        print(trainTurnAverages)
-        print("\n")
-
-        trainModelaverages = {
-            key: (round(sum(values) / len(values), 3)) if values else 0.0 
-            for key, values in trainModelWise.items()
-        }
-        print(trainModelaverages)
-
-    #########################################################
-
-    turnWise = {}
-    modelWise = {}
-    for turn in fullData:  
-        turnKey = turn["turn"]
-        modelCombo = turn["modelCombo"].split("+")[0].strip().lower()
-        sat = turn["satisfaction"]
-
-        if turnKey in turnWise and isinstance(turnWise[turnKey], list):
-            turnWise[turnKey].append(sat)
-        else:
-            turnWise[turnKey] = [sat]
-
-        if modelCombo in modelWise and isinstance(modelWise[modelCombo], list):
-            modelWise[modelCombo].append(sat)
-        else:
-            modelWise[modelCombo] = [sat]
-
-    print("\nFull Data Turnwise")
-    turnWise = dict(sorted(turnWise.items()))
-    averages = {
-        key: (round(sum(values) / len(values), 3)) if values else 0.0 
-        for key, values in turnWise.items()
-    }
-
-    print(averages)
-    # create plot turn on x, average sat (train and val) on y
-    print("\n")
-
-    print("Full Data Modelwise")
-    averages = {
-        key: (round(sum(values) / len(values), 3)) if values else 0.0 
-        for key, values in modelWise.items()
-    }
-
-    print(averages)
-
     if(len(validationData) != 0):
-        plt.plot(valTurnAverages.keys(), valTurnAverages.values(), label='Train', marker='o', color='blue')
-    if(len(trainData) != 0):
-        plt.plot(trainTurnAverages.keys(), trainTurnAverages.values(), label='Validation', marker='s', color='orange')  
+        plt.plot(valTurnAveragesP.keys(), valTurnAveragesP.values(), label='Partial IOU', marker='o', color='blue') 
+        plt.plot(valTurnAveragesF.keys(), valTurnAveragesF.values(), label='Full IOU', marker='o', color='orange') 
 
-    plt.title('Average Satisfaction over Turns, Counterfactual')
+    plt.title('Average Satisfaction over Turns, Counterfactual, Split 42')
     plt.xlabel('Turn')
     plt.ylabel('Average Satisfaction')
     plt.legend()
-    plt.ylim(0, 0.40)
+    plt.ylim(0, 0.6)
     plt.grid(True)
     plt.savefig("counter.png")
 
