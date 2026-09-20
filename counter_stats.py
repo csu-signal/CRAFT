@@ -148,10 +148,9 @@ if __name__ == "__main__":
         else:
             validationModelWise[modelCombo] = [satP]
 
-    print(f"Count Validation: {len(validationData)}")
+    print(f"Count Validation: {len(validationData)} (Counterfactuals)")
     if(len(validationData) != 0):
-        print(f"Average Validation Partial Satisfaction: {round(validationSatP / len(validationData), 3)}\n")
-        print(f"Average Validation Full Satisfaction: {round(validationSatF / len(validationData), 3)}\n")
+        print(f"Average Validation Partial Satisfaction: {round(validationSatP / len(validationData), 3)}")
         validationTurnWiseP = dict(sorted(validationTurnWiseP.items()))
         validationTurnWiseF = dict(sorted(validationTurnWiseF.items()))
         valTurnAveragesP = {
@@ -165,13 +164,17 @@ if __name__ == "__main__":
                 }
 
         print(valTurnAveragesP)
+        print("\n")
+
+
+        print(f"Average Validation Full Satisfaction: {round(validationSatF / len(validationData), 3)}")
         print(valTurnAveragesF)
         print("\n")
 
         print(f"Count Validation (Factuals): {len(factualValidationData)}")
         if(len(factualValidationData) != 0):
-            print(f"Average Validation Partial Satisfaction: {round(validationSatPFact / len(factualValidationData), 3)}\n")
-            print(f"Average Validation Full Satisfaction: {round(validationSatFFact / len(factualValidationData), 3)}\n")
+            print(f"Average Validation Partial Satisfaction: {round(validationSatPFact / len(factualValidationData), 3)}")
+            
             validationTurnWisePFact = dict(sorted(validationTurnWisePFact.items()))
             validationTurnWiseFFact = dict(sorted(validationTurnWiseFFact.items()))
             valTurnAveragesPFact = {
@@ -185,6 +188,8 @@ if __name__ == "__main__":
                     }
     
             print(valTurnAveragesPFact)
+            print("\n")
+            print(f"Average Validation Full Satisfaction: {round(validationSatFFact / len(factualValidationData), 3)}")
             print(valTurnAveragesFFact)
             print("\n")
 
