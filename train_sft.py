@@ -24,6 +24,7 @@ import torch
 LOCAL_MODELS = {
     "qwen-7b":  "/data/open-weight-llms/models/qwen-7b",
     "llama-8b": "/data/open-weight-llms/models/llama-8b",
+    "qwen-3.5-9b": "/data/open-weight-llms/models/qwen-3.5-9b",
 }
 
 # ── Argument parsing ──────────────────────────────────────────────────────────
@@ -242,6 +243,9 @@ use_assistant_only_loss = args.assistant_only_loss and mask_supported
 # EOS token for Qwen vs Llama
 eos_token = "<|im_end|>" if "qwen" in args.model else "<|eot_id|>"
 print("args report to",args.report_to )
+
+total_steps = (len(dataset['train']) / args.batch_size) * args.num_epochs
+warmup_steps = int(total_steps * args.warmup_ratio)  # e.g. 0.1 * 1000 = 100
 sft_config = SFTConfig(
     # Output
     output_dir=output_dir,
@@ -252,7 +256,7 @@ sft_config = SFTConfig(
     per_device_train_batch_size=args.batch_size,
     gradient_accumulation_steps=args.grad_accum,
     learning_rate=args.lr,
-    warmup_ratio=args.warmup_ratio,
+    warmup_steps=warmup_steps,
     weight_decay=args.weight_decay,
     lr_scheduler_type="cosine",
     bf16=True,

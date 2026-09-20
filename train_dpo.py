@@ -53,6 +53,7 @@ LOCAL_MODELS = {
     "qwen-7b":  "/data/open-weight-llms/models/qwen-7b",
     "qwen-14b": "/data/open-weight-llms/models/qwen-14b",
     "llama-8b": "/data/open-weight-llms/models/llama-8b",
+    "qwen-3.5-9b": "/data/open-weight-llms/models/qwen-3.5-9b",
 
     # ── HuggingFace paths ─────────────────────────────────────
     "qwen-0.5b": "Qwen/Qwen2.5-0.5B-Instruct",
