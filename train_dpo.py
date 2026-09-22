@@ -206,9 +206,9 @@ if args.sft_checkpoint_path:
         torch_dtype=torch.bfloat16,
         device_map="auto",
         trust_remote_code=True,
-        use_cache=False,
         quantization_config=bnb_config,  # None is silently ignored
     )
+    base_model.config.use_cache = False
     model = PeftModel.from_pretrained(base_model, args.sft_checkpoint_path)
     model.enable_input_require_grads()
     model.train()
