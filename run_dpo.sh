@@ -7,11 +7,11 @@ echo "=========================================="
 
 PYTORCH_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 python train_dpo.py \
     --model qwen-3.5-9b \
-    --train_file sft_datasets/train_dpo.jsonl \
-    --eval_file sft_datasets/valid_dpo.jsonl \
-    --output_dir dpip_dpo_preference_builder_fullrun \
+    --train_file /data/dpip_agent_weights/hannah_test/sft_datasets/train_dpo.jsonl \
+    --eval_file /data/dpip_agent_weights/hannah_test/sft_datasets/valid_dpo.jsonl \
+    --output_dir dpip_dpo_preference_builder_fullrun_hannah \
     --run_name qwen-3.5-9b_dpo_r32_from_sft \
-    --sft_checkpoint_path sft_testing/qwen-3.5-9b_r32_baseline/checkpoint-369 \
+    --sft_checkpoint_path /data/dpip_agent_weights/hannah_test/sft_testing/qwen-3.5-9b_r32_baseline/checkpoint-369 \
     --num_epochs 4 \
     --lr 5.0e-6 \
     --batch_size 4 \
