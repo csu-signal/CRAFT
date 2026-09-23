@@ -5,7 +5,7 @@ echo "=========================================="
 echo "RUN 1: IPO  from SFT checkpoint (builder preference)"
 echo "=========================================="
 
-CUDA_VISIBLE_DEVICES=0 python train_dpo.py \
+PYTORCH_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=1 python train_dpo.py \
     --model qwen-3.5-9b \
     --train_file sft_datasets/train_dpo.jsonl \
     --eval_file sft_datasets/valid_dpo.jsonl \

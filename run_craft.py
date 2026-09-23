@@ -160,6 +160,24 @@ def run_craft_experiments(
 
     with open(md_path, 'w') as f:
         f.write(f"# CRAFT Results — {sample['structure']}\n\n")
+
+    if SINGLE_MODEL:
+        if DIRECTOR_MODE == 'api': #TODO finish
+            self.provider = self._get_provider(model_name)
+            if self.provider == "anthropic":
+                import anthropic
+                self.client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
+            elif self.provider == "gemini":
+                self.client = OpenAI(
+                    api_key=os.getenv("GEMINI_API_KEY"),
+                    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+                )
+            else:
+                self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
+            self.local_model = None
+            self.local_tokenizer = None
+        else:
+            self.provider = "local"
    
     # ── Run each structure ────────────────────────────────────
     for idx, structure_data in enumerate(tqdm(target_structures_list)):
@@ -617,6 +635,8 @@ if __name__ == "__main__":
                         help="Quantization for local models (qwen-72b/32b default 4bit)")
     parser.add_argument("--max_tokens",     type=int, default=None,
                         help="Override max output tokens for director (overrides per-model defaults)")
+    parser.add_argument("--single_model_instance",     type=bool, default=False,
+                        help="Use a single instance of the model for directors and builder (all public)")
     args = parser.parse_args()
 
     api_key = os.getenv('OPENAI_API_KEY')
@@ -631,6 +651,7 @@ if __name__ == "__main__":
     USE_ORACLE    = args.oracle
     ORACLE_N      = args.oracle_n
     USE_TOOLS     = not args.no_tools
+    SINGLE_MODEL = args.single_model_instance
     # ── Auto-generate output dir from config ──────────────────
     oracle_tag = f"oracle{ORACLE_N}" if USE_ORACLE else "no_oracle"
     tools_tag  = "tools" if USE_TOOLS else "no_tools"
