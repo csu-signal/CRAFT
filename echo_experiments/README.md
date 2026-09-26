@@ -48,6 +48,18 @@ python train.py --mode rloo_per_turn  --steps 300
 ```
 Each writes a LoRA checkpoint to `craft_echo_runs/<run_name>/final_model`.
 
+To continue an interrupted run rather than starting over:
+```bash
+python train.py --mode echo --steps 350 --resume_from_checkpoint craft_echo_runs/<run_name>/checkpoint-175
+```
+Restores the LoRA weights, optimizer state, and `global_step` from that
+checkpoint. Note this always starts a **new**, freshly-timestamped
+`run_name`/wandb run (not conditioned on `--resume_from_checkpoint`) that
+picks up logging from the restored step -- so in the wandb UI it shows up
+as a second run object, not the original run's curve continuing on the same
+page. View both runs together (e.g. select both in one panel) to see the
+full before/after trend as one continuous curve.
+
 
 ## 3. Build the frozen within-turn eval pool (once)
 
