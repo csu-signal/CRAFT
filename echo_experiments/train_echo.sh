@@ -6,7 +6,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=30G
-#SBATCH --gres=gpu:nvidia_a100_3g.40gb:1
+#SBATCH --gres=gpu:a100-sxm4-80gb:1
 #SBATCH --time=240:00:00
 #SBATCH --output=slurm-%j.out
 #SBATCH --error=slurm-%j.err
@@ -14,25 +14,10 @@
 #SBATCH --mail-type=end          	# send email when job ends
 #SBATCH --mail-user=sifatul.anindho@colostate.edu
 
-set -euo pipefail
-
-module purge
-module load python/anaconda
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate craft
-
-cd "$(dirname "$(realpath "$0")")"
-
-export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
-export TOKENIZERS_PARALLELISM=false
-
-echo "Job ${SLURM_JOB_ID} on ${SLURM_JOB_NODELIST}"
-echo "Conda environment: ${CONDA_DEFAULT_ENV}"
-echo "CUDA devices: ${CUDA_VISIBLE_DEVICES:-unset}"
-nvidia-smi
-
-srun --unbuffered python train.py \
-    --mode echo \
-    --steps 500 \
+srun python train.py \
+    --mode rloo_per_turn \
+    --log_dir /s/babbage/h/nobackup/nblancha/public-datasets/sifat/craft_echo_runs \
+    --steps 350 \
     --max_turns 20 \
-    --report_to wandb
+    --report_to wandb \
+    --resume_from_checkpoint /s/babbage/h/nobackup/nblancha/public-datasets/sifat/craft_echo_runs/craft_episode_return_Qwen2.5-7B-Instruct_seed42_20260921_1939/checkpoint-200
