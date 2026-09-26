@@ -17,6 +17,31 @@ from structure_generator_v2 import (
     get_coordinate_system_reference     
 )
 # from oracle import enumerate_correct_actions
+
+# Canonical builder system prompts -- single source of truth so every caller
+# (this file's own generate_move, echo_experiments' training rollout, and any
+# evaluation/sanity-check script) sends the model the exact same task framing
+# run_craft.py's own API builder path uses. In particular, the oracle variant
+# explicitly requires picking one of the pre-validated candidates rather than
+# freely improvising a placement -- since a sampled oracle candidate is by
+# construction physically legal, a builder that actually complies with this
+# instruction should rarely fail EnhancedGameState's own move validation.
+BUILDER_SYSTEM_PROMPT_ORACLE = (
+    "You are a Builder in a collaborative LEGO task. "
+    "You have been given VERIFIED CANDIDATE MOVES — you MUST choose exactly one from the list. "
+    "Respond in the specified PLACE/REMOVE/CLARIFY format. "
+    "In your CONFIRM field, write 2-3 sentences: which director(s) you followed, "
+    "whether others agreed or conflicted, and why you chose this candidate."
+)
+
+BUILDER_SYSTEM_PROMPT_BASE = (
+    "You are a Builder in a collaborative LEGO task. "
+    "Respond in the specified PLACE/REMOVE/CLARIFY format. "
+    "In your CONFIRM field, write 2-3 sentences: which director(s) you are following, "
+    "what the other directors said and whether they agreed or conflicted, "
+    "and why you chose this move."
+)
+
 try:
     import torch
     from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -483,23 +508,7 @@ WORKFLOW:
             if check_prompt_tokens: 
                 self.compute_builder_prompt_section_lengths(prompt)
  
-            system_content_oracle = (
-                "You are a Builder in a collaborative LEGO task. "
-                "You have been given VERIFIED CANDIDATE MOVES — you MUST choose exactly one from the list. "
-                "Respond in the specified PLACE/REMOVE/CLARIFY format. "
-                "In your CONFIRM field, write 2-3 sentences: which director(s) you followed, "
-                "whether others agreed or conflicted, and why you chose this candidate."
-            )
-
-            system_content_base = (
-                "You are a Builder in a collaborative LEGO task. "
-                "Respond in the specified PLACE/REMOVE/CLARIFY format. "
-                "In your CONFIRM field, write 2-3 sentences: which director(s) you are following, "
-                "what the other directors said and whether they agreed or conflicted, "
-                "and why you chose this move."
-            )
-
-            system_content = system_content_oracle if oracle_moves else system_content_base
+            system_content = BUILDER_SYSTEM_PROMPT_ORACLE if oracle_moves else BUILDER_SYSTEM_PROMPT_BASE
             # "You are a Builder. Respond with exactly one line in the specified format. No additional text or explanation. OLD block, slight change. 
             completion = self.client.chat.completions.create(
                 model=self.model_name,

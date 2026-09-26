@@ -44,7 +44,8 @@ def load_local_director_pipeline(
     model_path: str,
     quantize: Optional[str] = None,
     gpus: Optional[List[int]] = None,   # e.g. [0, 1] or [0] or None
-    lora_path: Optional[str] = None, 
+    lora_path: Optional[str] = None,
+    max_new_tokens: int = 512,
 ):
     bnb_config = _build_bnb_config(quantize)
 
@@ -76,8 +77,8 @@ def load_local_director_pipeline(
             "text-generation",
             model=model_path,
             device_map=device_map,
-            dtype=torch.bfloat16,          
-            max_new_tokens=512,
+            dtype=torch.bfloat16,
+            max_new_tokens=max_new_tokens,
             model_kwargs={"quantization_config": bnb_config} if bnb_config else {},
         )
     pipe.tokenizer.padding_side = "left"

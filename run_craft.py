@@ -592,7 +592,7 @@ if __name__ == "__main__":
                         help="Specific director model to run (api: model name, local: key from LOCAL_MODELS)")
     parser.add_argument("--builder",        type=str, default="gemini-2.5-flash",
                         help="Builder model name")
-    parser.add_argument("--dataset",        type=str, default="CRAFT/data/structures_dataset_20.json",
+    parser.add_argument("--dataset",        type=str, default="data/structures_dataset_20.json",
                         help="Path to structures dataset JSON")
     parser.add_argument("--output",         type=str, default=None,
                         help="Output directory (default: auto-generated from builder model)")
