@@ -161,23 +161,23 @@ def run_craft_experiments(
     with open(md_path, 'w') as f:
         f.write(f"# CRAFT Results — {sample['structure']}\n\n")
 
-    if SINGLE_MODEL:
-        if DIRECTOR_MODE == 'api': #TODO finish
-            self.provider = self._get_provider(model_name)
-            if self.provider == "anthropic":
-                import anthropic
-                self.client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
-            elif self.provider == "gemini":
-                self.client = OpenAI(
-                    api_key=os.getenv("GEMINI_API_KEY"),
-                    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-                )
-            else:
-                self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
-            self.local_model = None
-            self.local_tokenizer = None
-        else:
-            self.provider = "local"
+    # if SINGLE_MODEL:
+    #     if DIRECTOR_MODE == 'api': #TODO finish
+    #         self.provider = self._get_provider(model_name)
+    #         if self.provider == "anthropic":
+    #             import anthropic
+    #             self.client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
+    #         elif self.provider == "gemini":
+    #             self.client = OpenAI(
+    #                 api_key=os.getenv("GEMINI_API_KEY"),
+    #                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+    #             )
+    #         else:
+    #             self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
+    #         self.local_model = None
+    #         self.local_tokenizer = None
+    #     else:
+    #         self.provider = "local"
    
     # ── Run each structure ────────────────────────────────────
     for idx, structure_data in enumerate(tqdm(target_structures_list)):
@@ -663,10 +663,10 @@ if __name__ == "__main__":
         f"{DIRECTOR_MODE}/"
         f"{oracle_tag}_{tools_tag}_{run_tag}_{BUILDER_PROMPT}")
 
-    LOCAL_MODELS = {
+    #LOCAL_MODELS = {
         #"mistral-7b":       "mistralai/Mistral-7B-Instruct-v0.3",
         #"qwen3.8-27b":        "Qwen/Qwen3.8-27B",
-        "qwen3-9b":            "Qwen/Qwen3.5-9B"
+        #"qwen3-9b":            "Qwen/Qwen3.5-9B"
         #"qwen-7b":          "Qwen/Qwen2.5-7B-Instruct",
         #"llama-8b":         "meta-llama/Llama-3.1-8B-Instruct",
         #"qwen-14b":         "Qwen/Qwen2.5-14B-Instruct",
@@ -674,27 +674,32 @@ if __name__ == "__main__":
         #"gemma-9b":         "google/gemma-2-9b-it",
         #"deepseek-v2-lite": "deepseek-ai/DeepSeek-V2-Lite-Chat",
         #"qwen-72b":         "Qwen/Qwen2.5-72B-Instruct",
+    #}
+
+    LOCAL_MODELS = {
+        # "qwen-7b":          "/data/open-weight-llms/models/qwen-7b",
+        # "qwen7b_dpo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
+        # "qwen7b_sft_r32_builder" :"/data/open-weight-llms/models/qwen-7b",
+        # "qwen7b_ipo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
+
+        "qwen-3.5-9b":          "/data/open-weight-llms/models/qwen-3.5-9b",
+        "qwen-3.5-9b_dpo_r32_from_sft" : "/data/dpip_agent_weights/DPO_builder_preference_weights/qwen-3.5-9b_dpo_r32_from_sft",
+        "qwen-3.5-9b_sft_r32_builder" :"/data/dpip_agent_weights/hannah_test/sft_testing/qwen-3.5-9b_r32_baseline",
+        "qwen-3.5-9b_ipo_r32_from_sft" : "/data/dpip_agent_weights/IPO_weights/qwen-3.5-9b_ipo_r32_from_sft",
+        
+        # "qwen-14b":         "/data/open-weight-llms/models/qwen-14b",
+        # "qwen-32b":         "/data/open-weight-llms/models/qwen-32b",
+        
+        # "llama-8b":         "/data/open-weight-llms/models/llama-8b",
+        # "llama-8b_dpo_r32_from_sft":  "/data/open-weight-llms/models/llama-8b",
+        # "llama-8b_r32_baseline": "/data/open-weight-llms/models/llama-8b",
+        # "llama8b_ipo_r32_from_sft" : "/data/open-weight-llms/models/llama-8b"
+
+        # "mistral-7b":       "/data/open-weight-llms/models/mistral-7b",
+        # "gemma-9b":         "/data/open-weight-llms/models/gemma-9b",
+        # "deepseek-v2-lite": "/data/open-weight-llms/models/deepseek-v2-lite",
+        # "qwen-72b":         "/data/open-weight-llms/models/qwen-72b",
     }
-
-    # LOCAL_MODELS = {
-    #     # "qwen-7b":          "/data/open-weight-llms/models/qwen-7b",
-    #     # "qwen7b_dpo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
-    #     # "qwen7b_sft_r32_builder" :"/data/open-weight-llms/models/qwen-7b",
-    #     # "qwen7b_ipo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
-        
-    #     # "qwen-14b":         "/data/open-weight-llms/models/qwen-14b",
-    #     # "qwen-32b":         "/data/open-weight-llms/models/qwen-32b",
-        
-    #     # "llama-8b":         "/data/open-weight-llms/models/llama-8b",
-    #     # "llama-8b_dpo_r32_from_sft":  "/data/open-weight-llms/models/llama-8b",
-    #     # "llama-8b_r32_baseline": "/data/open-weight-llms/models/llama-8b",
-    #     # "llama8b_ipo_r32_from_sft" : "/data/open-weight-llms/models/llama-8b"
-
-    #     # "mistral-7b":       "/data/open-weight-llms/models/mistral-7b",
-    #     # "gemma-9b":         "/data/open-weight-llms/models/gemma-9b",
-    #     # "deepseek-v2-lite": "/data/open-weight-llms/models/deepseek-v2-lite",
-    #     # "qwen-72b":         "/data/open-weight-llms/models/qwen-72b",
-    # }
 
     API_DIRECTOR_MODELS = [
         #"gemini-3-flash-preview",

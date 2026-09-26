@@ -3,5 +3,5 @@
 
 ## structure_001
 - Turns: 20
-- Progress: 0.126
+- Progress: 0.053
 - Completed: False
