@@ -99,6 +99,8 @@ def run_craft_experiments(
     num_oracle = None,
     max_tokens = None
 ):
+    if SINGLE_MODEL:
+        builder_model_name = director_model_name
     os.makedirs(output_dir, exist_ok=True)
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
     col_names = ['Turn', 'Failed Move', 'Clarify', 'Structure Placement', 'Side Placement', 'Overall Structure State', 'Group Agreement', 'Transcription' ]
@@ -151,6 +153,8 @@ def run_craft_experiments(
     }
     #add director builder combo to name the outer dir
     model_combo_dir = f"{output_dir}/{director_model_name}_{builder_model_name}/"
+    if SINGLE_MODEL:
+        model_combo_dir += "singleInstance/"
     os.makedirs(model_combo_dir, exist_ok=True)
 
     md_path  = f"{model_combo_dir}/craft_{sample['id']}_{run}.md"
@@ -161,23 +165,10 @@ def run_craft_experiments(
     with open(md_path, 'w') as f:
         f.write(f"# CRAFT Results — {sample['structure']}\n\n")
 
-    # if SINGLE_MODEL:
-    #     if DIRECTOR_MODE == 'api': #TODO finish
-    #         self.provider = self._get_provider(model_name)
-    #         if self.provider == "anthropic":
-    #             import anthropic
-    #             self.client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
-    #         elif self.provider == "gemini":
-    #             self.client = OpenAI(
-    #                 api_key=os.getenv("GEMINI_API_KEY"),
-    #                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-    #             )
-    #         else:
-    #             self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
-    #         self.local_model = None
-    #         self.local_tokenizer = None
-    #     else:
-    #         self.provider = "local"
+    if SINGLE_MODEL:
+        print("Using single model instance")
+        single_client = OpenAI(api_key=api_key) if api_key else OpenAI()
+        single_model_name = director_model_name
    
     # ── Run each structure ────────────────────────────────────
     for idx, structure_data in enumerate(tqdm(target_structures_list)):
@@ -191,10 +182,12 @@ def run_craft_experiments(
                     director_id=did,
                     use_api=True,
                     api_key=api_key,
-                    model_name=director_model_name,
+                    model_name=single_model_name if SINGLE_MODEL else director_model_name,
                     structure_index=structure_index,    
                     run=run,      
-                    max_tokens=max_tokens,                  
+                    max_tokens=max_tokens, 
+                    single_instance =  single_client if SINGLE_MODEL else None,
+                    previousData = PREVIOUS_DATA_PATH                
                 )
                 for did in ["D1", "D2", "D3"]
             }
@@ -204,18 +197,23 @@ def run_craft_experiments(
             did: DirectorAgent(
                 director_id=did,
                 use_api=False,
-                model_name=director_model_name,
+                model_name=single_model_name if SINGLE_MODEL else director_model_name,
                 local_model=shared_model,
                 local_tokenizer=shared_tokenizer,
                 structure_index=structure_index,  
                 run=run,
-                max_tokens=max_tokens,                        
+                max_tokens=max_tokens, 
+                single_instance =  single_client if SINGLE_MODEL else None                        
             )
             for did in ["D1", "D2", "D3"]
         }
 
 
-        builder_agent = BuilderAgent(api_key=api_key, model_name=builder_model_name)
+        builder_agent = BuilderAgent(
+            api_key=api_key, 
+            model_name=single_model_name if SINGLE_MODEL else builder_model_name,
+            single_instance =  single_client if SINGLE_MODEL else None 
+            )
         
         common_ground_agent = None
         if use_common_ground:
@@ -614,8 +612,10 @@ if __name__ == "__main__":
                         help="Builder model name")
     parser.add_argument("--builderPrompt",  type=str, default="Literal1",
                             help="Builder prompt add in name")
-    parser.add_argument("--dataset",        type=str, default="/home/hannah/CRAFT/CRAFT/data/structures_dataset_20.json",
+    parser.add_argument("--dataset",        type=str, default="/home/traceteam/CRAFT/data/structures_dataset_20.json",
                         help="Path to structures dataset JSON")
+    parser.add_argument("--previousDataSettings", type=str, default="/home/traceteam/CRAFT/previousRunData",
+                    help="Path to previous data folder if replicating settings")
     parser.add_argument("--output",         type=str, default=None,
                         help="Output directory (default: auto-generated from builder model)")
     parser.add_argument("--turns",          type=int, default=20,
@@ -635,7 +635,7 @@ if __name__ == "__main__":
                         help="Quantization for local models (qwen-72b/32b default 4bit)")
     parser.add_argument("--max_tokens",     type=int, default=None,
                         help="Override max output tokens for director (overrides per-model defaults)")
-    parser.add_argument("--single_model_instance",     type=bool, default=False,
+    parser.add_argument("--single_model_instance",  action="store_true",
                         help="Use a single instance of the model for directors and builder (all public)")
     args = parser.parse_args()
 
@@ -646,6 +646,7 @@ if __name__ == "__main__":
     BUILDER_MODEL = args.builder
     BUILDER_PROMPT = BuilderType(args.builderPrompt)
     DATASET_PATH  = args.dataset
+    PREVIOUS_DATA_PATH = args.previousDataSettings
     MAX_TURNS     = args.turns
     RUN           = args.run
     USE_ORACLE    = args.oracle
@@ -766,7 +767,7 @@ if __name__ == "__main__":
 
     def run_all_structures(director_model_name, shared_model=None, shared_tokenizer=None):
         for structure_index in structure_indices:
-            with open(f'/home/hannah/CRAFT/CRAFT/previousRunData/dpip_structure_{structure_index + 1:03d}_{RUN}.json', 'r', encoding='utf-8') as file:
+            with open(f'{PREVIOUS_DATA_PATH}/dpip_structure_{structure_index + 1:03d}_{RUN}.json', 'r', encoding='utf-8') as file:
                 data = json.load(file)
                 partType = data['games'][0]['partialCompletionCategory']
                 

@@ -61,7 +61,8 @@ class DirectorAgent:
     }
   
     def __init__(self, director_id, use_api=True, api_key=None, model_name="gpt-4o-mini", 
-                 local_model=None, local_tokenizer=None, structure_index = None, run = None, max_tokens = 500):
+                 local_model=None, local_tokenizer=None, structure_index = None, run = None, max_tokens = 500,
+                   single_instance = None, previousData = ''):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.director_id = director_id
         self.use_api = use_api
@@ -78,9 +79,10 @@ class DirectorAgent:
         # seed = hash((structure_index, director_num, run)) % (2**32)
         # rng  = random.Random(seed)
         #self.archetype   = rng.choice(DirectorAgent.TYPES)
-        with open(f'/home/hannah/CRAFT/CRAFT/previousRunData/dpip_structure_{structure_index + 1:03d}_{run}.json', 'r', encoding='utf-8') as file:
-            data = json.load(file)
-            self.archetype = data['games'][0][f'{director_id} Archetype']
+        if os.path.isdir(previousData):
+            with open(f'{previousData}/dpip_structure_{structure_index + 1:03d}_{run}.json', 'r', encoding='utf-8') as file:
+                data = json.load(file)
+                self.archetype = data['games'][0][f'{director_id} Archetype']
         self.personality = DirectorAgent.ARCHETYPES[self.archetype]
         print(f"  {director_id} archetype: {self.archetype} "
             f"(structure={structure_index}, run={run})")
@@ -89,22 +91,26 @@ class DirectorAgent:
         # self.personality = DirectorAgent.ARCHETYPES[self.archetype]
         
         # NEW
-        if use_api:
-            self.provider = self._get_provider(model_name)
-            if self.provider == "anthropic":
-                import anthropic
-                self.client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
-            elif self.provider == "gemini":
-                self.client = OpenAI(
-                    api_key=os.getenv("GEMINI_API_KEY"),
-                    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-                )
+        if single_instance == None:
+            if use_api:
+                self.provider = self._get_provider(model_name)
+                if self.provider == "anthropic":
+                    import anthropic
+                    self.client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
+                elif self.provider == "gemini":
+                    self.client = OpenAI(
+                        api_key=os.getenv("GEMINI_API_KEY"),
+                        base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+                    )
+                else:
+                    self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
+                self.local_model = None
+                self.local_tokenizer = None
             else:
-                self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
-            self.local_model = None
-            self.local_tokenizer = None
+                self.provider = "local"
         else:
-            self.provider = "local"
+            self.provider = self._get_provider(model_name)
+            self.client = single_instance
 
         # else:
         #     # Load local model (e.g., Qwen)

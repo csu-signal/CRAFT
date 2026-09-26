@@ -85,8 +85,11 @@ Before deciding on a move, consider the following and make inferences based on c
 class BuilderAgent:
     """Builder agent that uses API calls"""
     
-    def __init__(self, api_key=None, model_name="gpt-4o-mini", oracle_moves=None):
-        self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
+    def __init__(self, api_key=None, model_name="gpt-4o-mini", oracle_moves=None, single_instance=None):
+        if single_instance == None:
+            self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
+        else:
+            self.client = single_instance
         self.model_name = model_name
         self.oracle_moves = oracle_moves
 
