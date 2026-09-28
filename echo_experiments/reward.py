@@ -1,14 +1,5 @@
 """
 Builder reward for CRAFT-ECHO experiments.
-
-completion_bonus/efficiency_weight were originally 1.0/0.1 -- checked against
-a live 183-step echo run and found corr(reward, completed_rate) = 0.97, with
-mean reward -0.046 in steps where zero episodes completed vs +0.028 where at
-least one did. completed_rate sits at ~1-3%, so this bonus (20-100x a typical
-single-turn progress_delta of ~0.01-0.05) was dominating the training signal
-whenever it fired instead of rewarding smooth incremental progress. Lowered
-to 0.3/0.02 so finishing still earns real extra credit without swamping the
-rest of the signal in whichever small per-step batch happens to contain it.
 """
 
 
