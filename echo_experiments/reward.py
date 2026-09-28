@@ -63,7 +63,6 @@ def compute_builder_reward(
     }
 
     if parse_failure:
-        # Genuinely non-compliant output — worse than a deliberate CLARIFY.
         reward_info["off_list_penalty"] = off_list_penalty
         reward_info["training_reward"] = off_list_penalty
         return off_list_penalty, reward_info
@@ -73,16 +72,12 @@ def compute_builder_reward(
         reward_info["training_reward"] = clarify_penalty
         return clarify_penalty, reward_info
 
-    if move_invalid:
-        # Parsed fine, but broke the game's own placement rules (bad layer,
-        # unknown block, illegal span, ...) -- a harder failure than simply
-        # picking a valid move that wasn't in the sampled oracle candidates.
+    if move_invalid:.
         reward_info["invalid_move_penalty"] = invalid_move_penalty
         reward_info["training_reward"] = invalid_move_penalty
         return invalid_move_penalty, reward_info
 
     if matched_oracle is False:
-        # Parsed as place/remove but doesn't match any oracle-verified candidate.
         reward_info["off_list_penalty"] = off_list_penalty
         reward_info["training_reward"] = off_list_penalty
         return off_list_penalty, reward_info
