@@ -121,3 +121,21 @@ python baseline_sanity_check.py --dataset benchmark --n_structures 20 \
 `eval_full_game.py`'s checkpoint runs need a GPU (loads the 7B base model +
 LoRA adapter); the API-builder run needs none, since both builder and
 directors are OpenAI calls.
+
+## 6. Analyze eval runs (figures + tables)
+
+```bash
+python analyze_evals.py                 # all runs in eval_results/, paired against the zero-shot base model
+python analyze_evals.py --labels base echo_step350 episode_return_step350 --reference base
+```
+Writes to `analysis_out/`: `bar_<metric>.png` (one figure per metric: mean +
+95% CI per model) and `results.{csv,md,tex}`. Conditions are named by
+builder base model + method (e.g. "Qwen2.5-7B + ECHO"); the checkpoint step
+isn't shown, so evaluate every method at the same step.
+Structures are the statistical unit: CIs bootstrap over structures (Wilson
+for completion), and comparisons vs `--reference` use a paired sign-flip test
+with Holm correction across metrics.
+
+To add a baseline or metric, edit `analysis/registry.py` (label prefix ->
+display name / colour / marker; metric -> direction / formatting). To add a
+figure, add a function to `analysis/plots.py:FIGURES`.

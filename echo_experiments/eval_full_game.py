@@ -1,290 +1,176 @@
 """
-Full-game evaluation: run a trained checkpoint (or the untrained base model)
-as the builder through complete multi-turn episodes against frozen
-directors, on the held-out benchmark structures (data/structures_dataset_20.json
--- never used for training, see data_split.py) rather than the training pool.
+Full-game evaluation of a local builder -- a trained LoRA checkpoint or an
+untrained base model of any size -- through complete multi-turn episodes
+against frozen directors on held-out structures. The protocol (structures,
+episodes per structure, seeds, starting boards, oracle setting) lives in
+eval_harness.py and is shared with baseline_sanity_check.py's API builders.
 
-This replaces the original within-turn eval (a single frozen decision point)
-now that training shows real final_progress signal worth measuring end to
-end: does the trained policy actually get closer to progress=1 over a
-complete episode, not just pick well at one frozen snapshot.
+Generation mirrors trainer.py's generate_fn (same chat template and
+oracle/base system prompt selection) so a checkpoint is evaluated the way it
+was trained.
 
-Reuses the exact same rollout.run_builder_episode used by both training and
-the earlier baseline_sanity_check.py/baseline_tools_check.py comparisons --
-the only new piece is a generate_fn that loads a LoRA checkpoint locally and
-generates with it, matching trainer.py's own generate_fn (same chat
-template, same system prompt selection) so the eval faithfully reflects what
-was actually trained.
+Usage (run from echo_experiments/, with HF_HOME=/data/huggingface_cache):
+    # zero-shot base models
+    python eval_full_game.py --label base_7b  --episodes_per_structure 5
+    python eval_full_game.py --label cot_7b   --episodes_per_structure 5 --prompt_style cot
+    python eval_full_game.py --label base_14b --episodes_per_structure 5 --base_model Qwen/Qwen2.5-14B-Instruct
+    python eval_full_game.py --label base_72b --episodes_per_structure 5 --base_model Qwen/Qwen2.5-72B-Instruct --quantize 4bit
 
-Usage:
-    # a trained checkpoint
-    python eval_full_game.py --checkpoint craft_echo_runs/craft_echo_.../checkpoint-200 --label echo_step200 --report_to wandb
+    # trained checkpoints
+    python eval_full_game.py --label echo --episodes_per_structure 5 --checkpoint /data/craft_echo_runs/<run>/checkpoint-350
 
-    # the untrained base model, for a zero-shot reference point
-    python eval_full_game.py --label base --report_to wandb
-
-    # against local Mistral directors instead of the API default, if that's what training used
-    python eval_full_game.py --checkpoint ... --label echo_step200 --director_mode local --director_model mistral-7b --director_gpu 1
+    # no-oracle ablation: same flags + --no_oracle --out_dir eval_results_no_oracle
 """
 import argparse
-import datetime
 import os
 import sys
 from pathlib import Path
 
+
+def _pre_parse_gpus():
+    p = argparse.ArgumentParser(add_help=False)
+    p.add_argument("--gpus", type=str, default="0")
+    p.add_argument("--director_mode", type=str, default="api")
+    p.add_argument("--director_gpu", type=int, default=1)
+    known, _ = p.parse_known_args()
+    gpus = known.gpus
+    if known.director_mode == "local":
+        gpus += f",{known.director_gpu}"
+    return gpus, len(known.gpus.split(","))
+
+
+# Builder runs on --gpus (default physical GPU 0; pass e.g. 0,1 to shard a
+# large model). A local director is appended as the last visible device.
+_VISIBLE, _N_BUILDER_GPUS = _pre_parse_gpus()
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", _VISIBLE)
+
 import torch
 from dotenv import load_dotenv
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 _CRAFT_ROOT = Path(__file__).resolve().parent.parent
 if str(_CRAFT_ROOT) not in sys.path:
     sys.path.insert(0, str(_CRAFT_ROOT))
 
-from agents.builder_agent import BUILDER_SYSTEM_PROMPT_ORACLE, BUILDER_SYSTEM_PROMPT_BASE
-from data_split import load_benchmark_structures
 from local_model_utils import load_local_director_pipeline
-from rollout import run_builder_episode
+from eval_harness import DEFAULT_MAX_TOKENS, add_protocol_args, builder_system_prompt, run_eval
 
 load_dotenv()
+
+TRAIN_MAX_PROMPT_LENGTH = 3584  # train.py's max_prompt_length
 
 LOCAL_DIRECTOR_MODELS = {
     "mistral-7b": "mistralai/Mistral-7B-Instruct-v0.3",
     "qwen-7b": "Qwen/Qwen2.5-7B-Instruct",
 }
 
-BUILDER_LOG_KEYS = [
-    "progress_delta", "matched_oracle", "parse_failure", "move_invalid", "completed",
-    "off_list_penalty", "invalid_move_penalty", "clarify_penalty",
-    "completion_bonus", "efficiency_bonus", "action", "training_reward", "final_progress",
-]
+
+def load_builder(base_model, checkpoint=None, quantize=None, n_gpus=1):
+    tokenizer = AutoTokenizer.from_pretrained(checkpoint or base_model)
+    tokenizer.pad_token = tokenizer.eos_token
+    kwargs = {"torch_dtype": torch.bfloat16}
+    if quantize:
+        kwargs["quantization_config"] = BitsAndBytesConfig(
+            load_in_4bit=quantize == "4bit", load_in_8bit=quantize == "8bit",
+            bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
+        )
+    if quantize or n_gpus > 1:
+        # only the builder's GPUs -- a local director sits on the last visible device
+        kwargs["device_map"] = "auto"
+        kwargs["max_memory"] = {i: torch.cuda.get_device_properties(i).total_memory for i in range(n_gpus)}
+    model = AutoModelForCausalLM.from_pretrained(base_model, **kwargs)
+    if "device_map" not in kwargs:
+        model = model.to("cuda:0")
+    if checkpoint:
+        model = PeftModel.from_pretrained(model, checkpoint)
+    model.eval()
+    return model, tokenizer
 
 
-def _safe_mean(vals):
-    vals = [v for v in vals if isinstance(v, (int, float)) and not isinstance(v, bool)]
-    return float(sum(vals) / len(vals)) if vals else float("nan")
+def make_checkpoint_generate_fn(model, tokenizer, max_prompt_length, max_new_tokens, temperature, prompt_style):
+    """Mirrors trainer.py's generate_fn (chat template, oracle/base system
+    prompt, top_p=0.9) plus the optional CoT instruction. temperature=0 -> greedy."""
+    device = next(model.parameters()).device
+    stats = {"prompt_tokens_max": 0, "prompts_over_train_limit": 0, "prompts_truncated": 0}
 
-
-def _safe_rate(bools):
-    vals = [1.0 if bool(v) else 0.0 for v in bools if v is not None]
-    return float(sum(vals) / len(vals)) if vals else float("nan")
-
-
-def summarize(reward_infos, group_sizes):
-    L = {k: [info[k] for info in reward_infos if k in info] for k in BUILDER_LOG_KEYS}
-    rewards = [info.get("training_reward", 0.0) for info in reward_infos]
-    return {
-        "builder/final_progress_mean": _safe_mean(L["final_progress"]),
-        "builder/completed_rate": _safe_rate(L["completed"]),
-        "builder/oracle_match_rate": _safe_rate([v for v in L["matched_oracle"] if v is not None]),
-        "builder/clarify_rate": _safe_rate([a == "clarify" for a in L["action"]]),
-        "builder/parse_failure_rate": _safe_rate(L["parse_failure"]),
-        "builder/invalid_move_rate": _safe_rate(L["move_invalid"]),
-        "builder/progress_delta_mean": _safe_mean(L["progress_delta"]),
-        "builder/mean_episode_length": float(sum(group_sizes) / len(group_sizes)) if group_sizes else float("nan"),
-        "reward": _safe_mean(rewards),
-        "reward_std": (torch.tensor(rewards).std().item() if len(rewards) > 1 else 0.0),
-    }
-
-
-def make_checkpoint_generate_fn(model, tokenizer, device, max_prompt_length, max_completion_length, temperature):
-    """Mirrors trainer.py's _run_single_episode.generate_fn exactly (same
-    chat template, same oracle/base system prompt selection, same sampling
-    params) so this eval reflects what the checkpoint was actually trained
-    to do -- just without unwrap_model_for_generation/accelerator, since
-    there's no distributed training context here, just a loaded model."""
     def generate_fn(prompt_text, oracle_moves):
-        system_prompt = BUILDER_SYSTEM_PROMPT_ORACLE if oracle_moves else BUILDER_SYSTEM_PROMPT_BASE
         chat_text = tokenizer.apply_chat_template(
             [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": builder_system_prompt(bool(oracle_moves), prompt_style)},
                 {"role": "user", "content": prompt_text},
             ],
             tokenize=False, add_generation_prompt=True,
         )
-        input_ids = tokenizer.encode(
-            chat_text, return_tensors="pt",
-            truncation=True, max_length=max_prompt_length,
-            add_special_tokens=False,
-        ).to(device)
-
+        input_ids = tokenizer.encode(chat_text, return_tensors="pt", add_special_tokens=False)
+        stats["prompt_tokens_max"] = max(stats["prompt_tokens_max"], input_ids.shape[1])
+        stats["prompts_over_train_limit"] += int(input_ids.shape[1] > TRAIN_MAX_PROMPT_LENGTH)
+        if max_prompt_length and input_ids.shape[1] > max_prompt_length:
+            # left truncation (training's behaviour) drops the system prompt and task instructions
+            stats["prompts_truncated"] += 1
+            input_ids = input_ids[:, -max_prompt_length:]
+        input_ids = input_ids.to(device)
+        sampling = dict(do_sample=True, temperature=temperature, top_p=0.9) if temperature > 0 else dict(do_sample=False)
         with torch.no_grad():
             output = model.generate(
-                input_ids,
-                max_new_tokens=max_completion_length,
-                do_sample=True,
-                temperature=temperature,
-                top_p=0.9,
-                pad_token_id=tokenizer.eos_token_id,
+                input_ids, attention_mask=torch.ones_like(input_ids),
+                max_new_tokens=max_new_tokens, pad_token_id=tokenizer.eos_token_id, **sampling,
             )
         new_tokens = output[0][input_ids.shape[1]:]
         decoded = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
         return input_ids[0].cpu(), new_tokens.cpu(), decoded
 
-    return generate_fn
+    return generate_fn, stats
 
 
-def run(
-    checkpoint=None,
-    base_model="Qwen/Qwen2.5-7B-Instruct",
-    label="base",
-    director_model_name="gpt-4.1-mini",
-    director_mode="api",
-    director_gpu=1,
-    director_max_new_tokens=448,
-    director_quantize=None,
-    oracle_n=20,
-    max_turns=20,
-    n_structures=20,   # the benchmark set only has 20 structures total
-    episodes_per_structure=1,
-    seed=42,
-    temperature=1.0,
-    max_prompt_length=3584,
-    max_completion_length=220,
-    log_every_episodes=5,
-    report_to="wandb",
-    run_name=None,
-):
-    print(f"[eval-full-game] label={label!r} checkpoint={checkpoint!r} base_model={base_model!r}")
-    print(f"[eval-full-game] director_mode={director_mode!r} director_model={director_model_name!r}")
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    add_protocol_args(parser)
+    g = parser.add_argument_group("local builder")
+    g.add_argument("--checkpoint", type=str, default=None, help="LoRA checkpoint dir; omit for the zero-shot base model")
+    g.add_argument("--base_model", type=str, default="Qwen/Qwen2.5-7B-Instruct")
+    g.add_argument("--quantize", type=str, default=None, choices=["4bit", "8bit"])
+    g.add_argument("--gpus", type=str, default="0", help="builder GPU(s), e.g. 0 or 0,1")
+    g.add_argument("--temperature", type=float, default=1.0, help="0 = greedy")
+    g.add_argument("--max_new_tokens", type=int, default=None,
+                   help=f"default: {DEFAULT_MAX_TOKENS['default']} (default style) / {DEFAULT_MAX_TOKENS['cot']} (cot)")
+    g.add_argument("--max_prompt_length", type=int, default=0,
+                   help="0 = never truncate (default). Training left-truncated at 3584, which cuts off the "
+                        "system prompt; prompts over that length are counted in the results either way")
+    g = parser.add_argument_group("local director (default: API directors)")
+    g.add_argument("--director_mode", type=str, default="api", choices=["api", "local"])
+    g.add_argument("--director_gpu", type=int, default=1)
+    g.add_argument("--director_max_new_tokens", type=int, default=448)
+    g.add_argument("--director_quantize", type=str, default=None, choices=[None, "4bit", "8bit"])
+    args = parser.parse_args()
 
-    structures = load_benchmark_structures()
-    import random
-    rng = random.Random(seed)
-    structure_indices = rng.sample(range(len(structures)), min(n_structures, len(structures)))
+    max_new_tokens = args.max_new_tokens or DEFAULT_MAX_TOKENS[args.prompt_style]
+    print(f"[eval-full-game] label={args.label!r} checkpoint={args.checkpoint!r} base_model={args.base_model!r} "
+          f"quantize={args.quantize} gpus={args.gpus} (CUDA_VISIBLE_DEVICES={os.environ['CUDA_VISIBLE_DEVICES']})")
+    model, tokenizer = load_builder(args.base_model, args.checkpoint, args.quantize, _N_BUILDER_GPUS)
+    generate_fn, gen_stats = make_checkpoint_generate_fn(
+        model, tokenizer, args.max_prompt_length, max_new_tokens, args.temperature, args.prompt_style)
 
-    device = "cuda:0"
-    tokenizer = AutoTokenizer.from_pretrained(checkpoint or base_model)
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.truncation_side = "left"
-    model = AutoModelForCausalLM.from_pretrained(base_model, torch_dtype=torch.bfloat16).to(device)
-    if checkpoint:
-        model = PeftModel.from_pretrained(model, checkpoint).to(device)
-    model.eval()
+    director_setup = {"director_mode": args.director_mode}
+    if args.director_mode == "local":
+        path = LOCAL_DIRECTOR_MODELS.get(args.director_model, args.director_model)
+        local_idx = _N_BUILDER_GPUS  # appended after the builder's GPUs in CUDA_VISIBLE_DEVICES
+        print(f"loading shared local director model {path} on physical GPU {args.director_gpu}...")
+        pipe, tok = load_local_director_pipeline(path, quantize=args.director_quantize, gpus=[local_idx],
+                                                 max_new_tokens=args.director_max_new_tokens)
+        director_setup.update(director_model_path=path, director_pipe=pipe, director_tok=tok)
 
-    generate_fn = make_checkpoint_generate_fn(
-        model, tokenizer, device, max_prompt_length, max_completion_length, temperature,
-    )
-
-    director_pipe, director_tok, director_model_path = None, None, director_model_name
-    if director_mode == "local":
-        director_model_path = LOCAL_DIRECTOR_MODELS.get(director_model_name, director_model_name)
-        print(f"loading shared local director model {director_model_path} on cuda:{director_gpu}...")
-        director_pipe, director_tok = load_local_director_pipeline(
-            director_model_path, quantize=director_quantize, gpus=[director_gpu],
-            max_new_tokens=director_max_new_tokens,
-        )
-    else:
-        print(f"using OpenAI API directors: {director_model_path} (no local model loaded)")
-
-    now = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    run_name = run_name or f"fullgame_{label}_seed{seed}_{now}"
-
-    use_wandb = report_to == "wandb"
-    if use_wandb:
-        import wandb
-        wandb.init(
-            project=os.getenv("WANDB_PROJECT", "craft_echo"),
-            entity=os.getenv("WANDB_ENTITY"),
-            name=run_name,
-            group="eval_full_game",
-            config={
-                "label": label, "checkpoint": checkpoint, "base_model": base_model,
-                "director_mode": director_mode, "director_model": director_model_name,
-                "oracle_n": oracle_n, "max_turns": max_turns,
-                "n_structures": n_structures, "episodes_per_structure": episodes_per_structure,
-            },
-        )
-
-    all_infos_window, group_sizes_window = [], []
-    all_infos_total, group_sizes_total = [], []
-    episode_num = 0
-    total_episodes = len(structure_indices) * episodes_per_structure
-
-    for structure_idx in structure_indices:
-        structure_data = structures[structure_idx]
-        for _ in range(episodes_per_structure):
-            episode_num += 1
-            print(f"[eval-full-game] episode {episode_num}/{total_episodes} (structure_idx={structure_idx})")
-            episode = run_builder_episode(
-                structure_data=structure_data,
-                generate_fn=generate_fn,
-                structure_index=structure_idx,
-                run_id=seed,
-                oracle_n=oracle_n,
-                max_turns=max_turns,
-                director_model_name=director_model_path,
-                director_mode=director_mode,
-                director_api_key=os.getenv("OPENAI_API_KEY") if director_mode == "api" else None,
-                shared_director_model=director_pipe,
-                shared_director_tokenizer=director_tok,
-                seed=seed * 7919 + episode_num,
-            )
-            all_infos_window.extend(episode["reward_infos"])
-            group_sizes_window.append(len(episode["rewards"]))
-            all_infos_total.extend(episode["reward_infos"])
-            group_sizes_total.append(len(episode["rewards"]))
-
-            if episode_num % log_every_episodes == 0 or episode_num == total_episodes:
-                metrics = summarize(all_infos_window, group_sizes_window)
-                print(f"  [{episode_num}/{total_episodes}] " + " ".join(f"{k.split('/')[-1]}={v:.3f}" for k, v in metrics.items()))
-                if use_wandb:
-                    wandb.log(metrics, step=episode_num)
-                all_infos_window, group_sizes_window = [], []
-
-    final_metrics = summarize(all_infos_total, group_sizes_total)
-    print("\n" + "=" * 60)
-    print(f"FINAL over {total_episodes} episodes ({run_name})")
-    for k, v in final_metrics.items():
-        print(f"  {k:35s} = {v:.4f}")
-    print("=" * 60)
-
-    if use_wandb:
-        wandb.summary.update({f"final_{k}": v for k, v in final_metrics.items()})
-        wandb.finish()
+    config = {
+        "builder_kind": "local", "base_model": args.base_model, "checkpoint": args.checkpoint,
+        "quantize": args.quantize, "temperature": args.temperature, "top_p": 0.9 if args.temperature > 0 else None,
+        "max_new_tokens": max_new_tokens, "max_prompt_length": args.max_prompt_length,
+        "generation_stats": gen_stats,  # updated during the run; saved with the results
+    }
+    run_eval(args, generate_fn, config, checkpoint=args.checkpoint, director_setup=director_setup)
+    print(f"[eval-full-game] longest prompt {gen_stats['prompt_tokens_max']} tokens; "
+          f"{gen_stats['prompts_over_train_limit']} over training's {TRAIN_MAX_PROMPT_LENGTH}; "
+          f"{gen_stats['prompts_truncated']} truncated")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Full-game eval: run a checkpoint (or base model) through complete episodes on the held-out benchmark set")
-    parser.add_argument("--checkpoint", type=str, default=None, help="LoRA checkpoint dir; omit for zero-shot base model")
-    parser.add_argument("--base_model", type=str, default="Qwen/Qwen2.5-7B-Instruct")
-    parser.add_argument("--label", type=str, required=True, help="e.g. echo_step200, episode_return_step200, base")
-    parser.add_argument("--director_model", type=str, default="gpt-4.1-mini")
-    parser.add_argument("--director_mode", type=str, default="api", choices=["api", "local"])
-    parser.add_argument("--director_gpu", type=int, default=1)
-    parser.add_argument("--director_max_new_tokens", type=int, default=448)
-    parser.add_argument("--director_quantize", type=str, default=None, choices=[None, "4bit", "8bit"])
-    parser.add_argument("--oracle_n", type=int, default=20)
-    parser.add_argument("--max_turns", type=int, default=20)
-    parser.add_argument("--n_structures", type=int, default=20, help="the benchmark set has 20 structures total")
-    parser.add_argument("--episodes_per_structure", type=int, default=1)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--temperature", type=float, default=1.0)
-    parser.add_argument("--max_prompt_length", type=int, default=3584)
-    parser.add_argument("--max_completion_length", type=int, default=220)
-    parser.add_argument("--log_every_episodes", type=int, default=5)
-    parser.add_argument("--report_to", type=str, default="wandb", choices=["none", "wandb"])
-    parser.add_argument("--run_name", type=str, default=None)
-    args = parser.parse_args()
-
-    run(
-        checkpoint=args.checkpoint,
-        base_model=args.base_model,
-        label=args.label,
-        director_model_name=args.director_model,
-        director_mode=args.director_mode,
-        director_gpu=args.director_gpu,
-        director_max_new_tokens=args.director_max_new_tokens,
-        director_quantize=args.director_quantize,
-        oracle_n=args.oracle_n,
-        max_turns=args.max_turns,
-        n_structures=args.n_structures,
-        episodes_per_structure=args.episodes_per_structure,
-        seed=args.seed,
-        temperature=args.temperature,
-        max_prompt_length=args.max_prompt_length,
-        max_completion_length=args.max_completion_length,
-        log_every_episodes=args.log_every_episodes,
-        report_to=args.report_to,
-        run_name=args.run_name,
-    )
+    main()

@@ -1,0 +1,25 @@
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lrrrrrrrrrrrr}
+\toprule
+Condition & Final progress (\%) $\uparrow$ & Completion rate (\%) $\uparrow$ & Oracle match (\%) $\uparrow$ & Invalid moves (\%) $\downarrow$ & Parse failures (\%) $\downarrow$ & Clarify rate (\%) & Progress gained (\%) $\uparrow$ & Correct moves (\%) $\uparrow$ & Episode length $\downarrow$ & Reward / turn $\uparrow$ & Director API failures (\%) $\downarrow$ & Builder output tokens \\
+\midrule
+Qwen2.5-7B + ECHO & $\mathbf{99.9}_{[99.7, 100.0]}^{\dagger}$ & $\mathbf{98.3}_{[95.0, 100.0]}^{\dagger}$ & $\mathbf{84.3}_{\pm 2.0}^{\dagger}$ & $\mathbf{3.9}_{\pm 1.1}^{\dagger}$ & $1.9_{\pm 0.2}$ & $12.2_{\pm 1.3}^{\dagger}$ & $\mathbf{74.4}_{\pm 4.0}^{\dagger}$ & $\mathbf{81.5}_{\pm 1.8}^{\dagger}$ & $\mathbf{13.7}_{\pm 0.7}^{\dagger}$ & $\mathbf{0.028}_{\pm 0.004}^{\dagger}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+\midrule
+Claude Sonnet 5 & $98.3_{\pm 1.2}^{\dagger}$ & $86.7_{\pm 8.3}^{\dagger}$ & $80.9_{\pm 1.8}^{\dagger}$ & $5.2_{\pm 1.2}^{\dagger}$ & $1.9_{\pm 0.3}$ & $15.6_{\pm 1.3}^{\dagger}$ & $72.3_{\pm 3.7}^{\dagger}$ & $74.1_{\pm 1.8}^{\dagger}$ & $14.8_{\pm 0.9}^{\dagger}$ & $0.019_{\pm 0.005}^{\dagger}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+Claude Sonnet 4.6 & $98.1_{\pm 1.5}^{\dagger}$ & $83.3_{\pm 9.2}^{\dagger}$ & $75.6_{\pm 1.7}^{\dagger}$ & $8.4_{\pm 1.2}^{\dagger}$ & $2.0_{\pm 0.2}$ & $18.6_{\pm 0.9}^{\dagger}$ & $70.3_{\pm 4.3}^{\dagger}$ & $70.1_{\pm 1.9}^{\dagger}$ & $15.2_{\pm 1.0}^{\dagger}$ & $0.013_{\pm 0.005}^{\dagger}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+GPT-5.4 mini & $92.1_{\pm 2.4}^{\dagger}$ & $50.0_{\pm 10.0}^{\dagger}$ & $70.8_{\pm 2.0}^{\dagger}$ & $10.1_{\pm 1.0}^{\dagger}$ & $2.1_{\pm 0.2}$ & $19.5_{\pm 1.0}^{\dagger}$ & $70.6_{\pm 3.3}^{\dagger}$ & $64.8_{\pm 2.1}^{\dagger}$ & $17.6_{\pm 0.7}^{\dagger}$ & $0.009_{\pm 0.006}^{\dagger}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+GPT-4.1 mini & $88.3_{\pm 3.6}^{\dagger}$ & $40.0_{\pm 12.5}^{\dagger}$ & $61.4_{\pm 1.9}^{\dagger}$ & $15.7_{\pm 1.4}^{\dagger}$ & $2.1_{\pm 0.2}$ & $24.8_{\pm 1.2}^{\dagger}$ & $59.7_{\pm 2.6}^{\dagger}$ & $53.6_{\pm 2.1}^{\dagger}$ & $18.3_{\pm 0.7}^{\dagger}$ & $0.001_{\pm 0.005}^{\dagger}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+\midrule
+Qwen2.5-7B + GRPO & $86.9_{\pm 3.2}^{\dagger}$ & $43.3_{\pm 10.0}^{\dagger}$ & $63.0_{\pm 1.8}^{\dagger}$ & $13.9_{\pm 1.3}^{\dagger}$ & $2.1_{\pm 0.2}$ & $23.5_{\pm 1.5}^{\dagger}$ & $63.3_{\pm 3.3}^{\dagger}$ & $58.6_{\pm 1.9}^{\dagger}$ & $18.4_{\pm 0.6}^{\dagger}$ & $0.001_{\pm 0.003}^{\dagger}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+Qwen2.5-7B + RLOO & $98.4_{\pm 0.9}^{\dagger}$ & $83.3_{\pm 8.3}^{\dagger}$ & $80.6_{\pm 2.1}^{\dagger}$ & $4.4_{\pm 1.0}^{\dagger}$ & $2.1_{\pm 0.2}$ & $15.3_{\pm 1.3}^{\dagger}$ & $72.7_{\pm 4.8}^{\dagger}$ & $75.3_{\pm 1.8}^{\dagger}$ & $15.1_{\pm 1.2}^{\dagger}$ & $0.020_{\pm 0.006}^{\dagger}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+\midrule
+Qwen2.5-72B 4-bit (zero-shot) & $81.7_{\pm 4.5}^{\dagger}$ & $23.3_{\pm 10.0}^{\dagger}$ & $53.7_{\pm 2.4}^{\dagger}$ & $16.9_{\pm 1.1}^{\dagger}$ & $2.2_{\pm 0.2}$ & $28.0_{\pm 1.4}^{\dagger}$ & $55.8_{\pm 2.4}^{\dagger}$ & $48.5_{\pm 1.8}^{\dagger}$ & $19.3_{\pm 0.4}^{\dagger}$ & $-0.008_{\pm 0.005}^{\dagger}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+Qwen2.5-14B (zero-shot) & $66.0_{\pm 5.2}$ & $5.0_{\pm 5.0}$ & $45.0_{\pm 1.9}^{\dagger}$ & $22.3_{\pm 1.1}^{\dagger}$ & $\mathbf{1.9}_{\pm 0.2}$ & $32.5_{\pm 1.2}^{\dagger}$ & $43.7_{\pm 3.0}^{\dagger}$ & $39.6_{\pm 2.1}^{\dagger}$ & $19.8_{[19.5, 20.0]}$ & $-0.015_{\pm 0.004}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+Qwen2.5-7B (zero-shot) & $57.9_{\pm 5.3}$ & $0.0_{[0.0, 16.1]}$ & $36.8_{\pm 1.2}$ & $26.0_{\pm 0.9}$ & $2.2_{\pm 0.2}$ & $36.6_{\pm 0.8}$ & $32.0_{\pm 2.2}$ & $34.1_{\pm 2.5}$ & $20.0_{\pm 0.0}$ & $-0.018_{\pm 0.004}$ & $\mathbf{0.00}_{\pm 0.00}$ & $60_{\pm 0}$ \\
+\bottomrule
+\end{tabular}
+\caption{Full-game evaluation on the held-out benchmark. Mean with 95\% CI (half-width, or [low, high] where asymmetric) over 20 structures (bootstrap; Wilson for completion). Best per column in bold. $^\dagger$: paired sign-flip test vs Qwen2.5-7B (zero-shot), Holm-corrected, $p<0.05$.}
+\label{tab:main_results}
+\end{table}
