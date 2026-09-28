@@ -17,8 +17,13 @@ candidate at a single, frozen decision point?
 | `train.py` | CLI: trains one of the three conditions |
 | `build_eval_pool.py` | Builds the frozen within-turn eval set (fixed director discussions, replayed identically to every checkpoint) |
 | `eval_within_turn.py` | Scores one checkpoint against the frozen pool: best-candidate rate, regret, compliance rate, P(CLARIFY) |
-| `eval_full_game.py` | Runs a checkpoint (or the base model) through complete multi-turn episodes on the held-out benchmark set |
-| `baseline_sanity_check.py` | Same full-game rollout, driven by an API builder (e.g. gpt-4o-mini) instead of a local checkpoint -- `--dataset benchmark` makes it directly comparable to `eval_full_game.py` |
+| `eval_harness.py` | The shared full-game eval protocol: structures, per-episode seeds and starting boards, oracle setting, resume, result files |
+| `eval_full_game.py` | Full-game eval of a local builder: a trained checkpoint or a zero-shot base model of any size (optionally 4-bit) |
+| `baseline_sanity_check.py` | Full-game eval of an API builder (OpenAI, Gemini or Anthropic) under the same protocol |
+| `api_builders.py` | Provider adapters for API builders (reasoning-model token budgets, temperature fallback, retries) |
+| `eval_results.py` | Per-episode metrics and the per-run JSON / CSV result files |
+| `analyze_evals.py` | CLI: figures and tables from a directory of eval results |
+| `analysis/` | The analysis package: `registry.py` (conditions, metrics, colours), `stats.py`, `plots.py`, `tables.py` |
 
 ## Setup
 
@@ -89,53 +94,113 @@ experiment design.
 
 ## 5. Full-game evaluation (held-out benchmark set)
 
-The within-turn eval only checks a single frozen decision point. This
-instead runs each condition through complete episodes (up to `max_turns`
-turns, frozen directors, real game state) on the shipped 20-structure
-benchmark (`data/structures_dataset_20.json` -- never used for training),
-and reports `final_progress_mean` (does the structure actually get built,
-not just per-turn `progress_delta`), `completed_rate`, `oracle_match_rate`,
-`clarify_rate`, `invalid_move_rate`.
+Runs each condition through complete episodes (up to `--max_turns`, frozen
+gpt-4.1-mini directors, real game state) on the shipped 20-structure
+benchmark (`data/structures_dataset_20.json`, never used for training; the
+harness checks it doesn't overlap the training pool). Both scripts share one
+protocol (`eval_harness.py`): episode `k` of structure `s` gets the same
+seed, starting board, director order and oracle candidates in every
+condition, so conditions can be compared structure by structure. Each
+episode is saved as it finishes; rerun with the same `--run_name` and
+`--resume` to continue a crashed run.
 
-Both scripts default to `oracle_n=20`, `max_turns=20`, `gpt-4.1-mini`
-directors -- keep these consistent across every condition below rather than
-matching whatever a given training run used, since it's cross-condition
-consistency (not matching train-time settings) that keeps the comparison
-fair.
+Give every condition a unique `--label` and put them all in the same
+`--out_dir`. Run from `echo_experiments/` with
+`HF_HOME=/data/huggingface_cache`, adding
+`--episodes_per_structure 3 --out_dir eval_results_v2` to each command:
 
 ```bash
-# trained checkpoints -- point --checkpoint at craft_echo_runs/<run_name>/checkpoint-<step>
-python eval_full_game.py --checkpoint craft_echo_runs/<echo_run>/checkpoint-350 --label echo_step350 --report_to wandb
-python eval_full_game.py --checkpoint craft_echo_runs/<rloo_run>/checkpoint-350 --label rloo_step350 --report_to wandb
-python eval_full_game.py --checkpoint craft_echo_runs/<episode_return_run>/checkpoint-200 --label episode_return_step200 --report_to wandb
+# local builders (eval_full_game.py); --gpus picks the GPU, --quantize 4bit for large models
+python eval_full_game.py --gpus 0 --label base_7b
+python eval_full_game.py --gpus 0 --label echo --checkpoint /data/craft_echo_runs/<echo_run>/checkpoint-350
+python eval_full_game.py --gpus 0 --label rloo --checkpoint /data/craft_echo_runs/<rloo_run>/checkpoint-350
+python eval_full_game.py --gpus 0 --label grpo --checkpoint /data/craft_echo_runs/<episode_return_run>/checkpoint-350
+python eval_full_game.py --gpus 0 --label base_14b --base_model Qwen/Qwen2.5-14B-Instruct
+python eval_full_game.py --gpus 1 --label base_72b --base_model Qwen/Qwen2.5-72B-Instruct --quantize 4bit
 
-# untrained base model -- zero-shot reference point
-python eval_full_game.py --label base --report_to wandb
-
-# API builder, on the same held-out set for a direct comparison
-python baseline_sanity_check.py --dataset benchmark --n_structures 20 \
-  --builder_model gpt-4o-mini --director_mode api --director_model gpt-4.1-mini \
-  --report_to wandb --run_name api_baseline_benchmark
+# API builders (baseline_sanity_check.py); no GPU needed
+python baseline_sanity_check.py --label api_gpt-4.1-mini      --builder_model gpt-4.1-mini
+python baseline_sanity_check.py --label api_claude-sonnet-4-6 --builder_model claude-sonnet-4-6   # needs ANTHROPIC_API_KEY
 ```
 
-`eval_full_game.py`'s checkpoint runs need a GPU (loads the 7B base model +
-LoRA adapter); the API-builder run needs none, since both builder and
-directors are OpenAI calls.
+Other protocol options: `--prompt_style cot` (reason first, answer on the
+last line), `--no_oracle` (hide the candidate moves from the builder; use a
+separate `--out_dir`, e.g. `eval_results_v2_no_oracle`), and
+`--part_type empty` (start every episode from an empty board, as
+`run_craft.py` does). Every run records its full settings in its JSON.
 
 ## 6. Analyze eval runs (figures + tables)
 
-```bash
-python analyze_evals.py                 # all runs in eval_results/, paired against the zero-shot base model
-python analyze_evals.py --labels base echo_step350 episode_return_step350 --reference base
-```
-Writes to `analysis_out/`: `bar_<metric>.png` (one figure per metric: mean +
-95% CI per model) and `results.{csv,md,tex}`. Conditions are named by
-builder base model + method (e.g. "Qwen2.5-7B + ECHO"); the checkpoint step
-isn't shown, so evaluate every method at the same step.
-Structures are the statistical unit: CIs bootstrap over structures (Wilson
-for completion), and comparisons vs `--reference` use a paired sign-flip test
-with Holm correction across metrics.
+Every eval run (`eval_full_game.py` or `baseline_sanity_check.py`) writes
+`<out_dir>/<run_name>.json` when it finishes. The analysis reads every JSON
+in one results directory and turns them into paper figures and tables. It
+needs no GPU and takes a few seconds, so rerun it whenever new runs land.
 
-To add a baseline or metric, edit `analysis/registry.py` (label prefix ->
-display name / colour / marker; metric -> direction / formatting). To add a
-figure, add a function to `analysis/plots.py:FIGURES`.
+```bash
+cd echo_experiments
+
+# everything in eval_results_v2/, compared against the zero-shot Qwen2.5-7B run (label base_7b)
+python analyze_evals.py --results eval_results_v2 --out analysis_out
+
+# the no-oracle ablation is a separate experiment: analyze its own directory
+python analyze_evals.py --results eval_results_v2_no_oracle --out analysis_out_no_oracle
+
+# a subset of conditions, or only some metrics
+python analyze_evals.py --results eval_results_v2 --labels base_7b grpo rloo echo
+python analyze_evals.py --results eval_results_v2 --metrics final_progress completed invalid_move_rate
+```
+
+Options:
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--results` | `eval_results` | directory of per-run `*.json` files (`*.partial.jsonl` logs are ignored) |
+| `--out` | `analysis_out` | where figures and tables are written (created if missing) |
+| `--labels` | all | only these eval `--label`s |
+| `--reference` | `base_7b` | label every condition is paired against in the comparison table |
+| `--metrics` | all non-diagnostic | one bar chart per metric |
+| `--table_metrics` | all | table columns |
+| `--figures` | `bar progress_curve` | which figure types to draw |
+
+Outputs in `--out`:
+
+| File | Contents |
+|---|---|
+| `bar_<metric>.png` | one bar per condition (mean + 95% CI), value above each bar, arrow on the y-axis for which direction is better, legend below; ECHO outlined in black |
+| `progress_curve.png` | cumulative progress vs turn, one line per condition with a 95% CI band |
+| `legend_bar.png`, `legend_line.png` | the legend alone, for assembling multi-panel figures |
+| `results.md` | main table (mean with 95% CI, best per column in bold) and paired differences vs `--reference` |
+| `results.tex` | the main table as a booktabs LaTeX table (`\usepackage{booktabs}`) |
+| `results.csv` | every estimate, CI and paired test as raw numbers |
+
+The analysis refuses to run when the runs in a directory don't belong
+together, and warns when they're comparable but set up differently:
+
+* **Error:** different structure files or oracle settings
+  (`structures_sha`, `oracle_in_prompt`). Put each setting in its own
+  directory.
+* **Error:** one `--label` used for two different models. Labels must be
+  unique per condition, e.g. `base_7b` / `base_14b`.
+* **Warning:** runs differ in director model, `oracle_n`, `max_turns`,
+  number of structures, episodes per structure or starting-board mode.
+
+**Statistics.** Structures are the unit of analysis. Each structure's
+episodes are averaged first, so 20 structures × 3 episodes gives n = 20, not
+60. CIs are a percentile bootstrap over structures (Wilson for completion).
+Comparisons against `--reference` are paired on the structures both
+conditions ran: a sign-flip permutation test, Holm-corrected across metrics.
+
+**Names, colours and order** come from the eval label and the run's model:
+`echo`, `rloo`, `grpo`, `cot_*`, `base_*` (e.g. "Qwen2.5-72B 4-bit
+(zero-shot)"), and `api_*` (named after `--builder_model`, e.g. "Claude
+Sonnet 4.6"). Colours match the paper's existing figures where the same
+model appears there. The progress curve needs the per-turn progress log,
+which only runs made with the current harness contain.
+
+**Extending it.** To add a method or baseline, add a `Method` in
+`analysis/registry.py`; its key is matched as a prefix of the eval label.
+To give an API or base model its own colour, add it to `MODEL_STYLES` in
+the same file. For a new metric, compute it per episode in
+`eval_results.episode_metrics`, then add a `Metric` to the registry. For a
+new figure, add a function to `analysis/plots.py` and register it in
+`PER_METRIC` (drawn once per metric) or `SINGLE` (drawn once).

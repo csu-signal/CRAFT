@@ -42,10 +42,6 @@ class Metric:
     diagnostic: bool = False         # run-health metric: in the tables, not in the default figures
 
 
-# List order = table/figure order. Colour is per method, so every zero-shot
-# size shares the neutral and every API model shares one hue -- the x-axis
-# label carries which model it is. Colours are pinned to SERIES slots
-# (not list position) so reordering never repaints a method.
 METHODS = [
     Method("echo", "ECHO", "#127362", "s"),
     Method("api", "API", SERIES[3], "o", kind="baseline", name_fmt="{model}"),
@@ -55,18 +51,14 @@ METHODS = [
     Method("base", "zero-shot", "#a9a9a9", "o", kind="baseline", name_fmt="{model} ({name})"),
 ]
 
-# Per-model colours, matching the paper's existing figures where the same
-# model appears there (ECHO, Claude Sonnet 4.6, GPT-4.1 mini, GRPO, Qwen
-# base), so a model is the same colour in every figure. Keyed by the
-# displayed model name; order here is also the order within a method
-# (API models, Qwen sizes). Anything not listed uses its Method's colour.
+
 MODEL_STYLES = {
     "Claude Sonnet 5": "#34507f",
     "Claude Sonnet 4.6": "#607fb0",
     "GPT-5.4 mini": "#8a7fb5",
     "GPT-4.1 mini": "#7897bc",
     "Qwen2.5-72B 4-bit": "#595959",
-    "Qwen2.5-14B": "#808080",
+    "Qwen2.5-14B": "#a86b32",
     "Qwen2.5-7B": "#a9a9a9",
 }
 METHODS_BY_KEY = {k: m for m in METHODS for k in (m.key, *m.aliases)}
