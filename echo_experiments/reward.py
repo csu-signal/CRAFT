@@ -22,30 +22,20 @@ def compute_builder_reward(
     """
     move_dict: parsed builder output (agents.builder_agent.BuilderAgent.parse_builder_response)
     progress_delta: EnhancedGameState.execute_move's progress_data["progress_delta"]
-        (0.0 when the move failed or wasn't executed, e.g. CLARIFY) -- raw,
-        unshaped value; the shaping in this function is applied on top of it
-        and reflected only in "training_reward", not in this logged field.
+        (0.0 when the move failed or wasn't executed, e.g. CLARIFY)
     matched_oracle: True/False if the move was place/remove, None if CLARIFY
         (see rollout._oracle_match)
     completed: EnhancedGameState.execute_move's overallState return value
     turns_remaining_at_completion: max_turns - (turn + 1), only meaningful if completed
     parse_failure: True if parse_builder_response fell back to its
-        "Could not parse response" / "Parse error" path (disguised as CLARIFY)
+        "Could not parse response" / "Parse error" path
     move_invalid: True if a parsed place/remove failed EnhancedGameState.execute_move's
-        own validation (rollout.py's `success` flag) -- distinct from matched_oracle,
-        which only checks whether the move's fields happen to equal a sampled
-        candidate, regardless of whether it would actually execute.
-    clarify_penalty: flat reward for a genuine (non-parse-failure) CLARIFY --
-        negative but less harsh than off_list_penalty, since CLARIFY is still
-        a valid, compliant action, just possibly unwarranted.
+        own validation (rollout.py's `success` flag) .
+    clarify_penalty: flat reward for a CLARIFY.
     invalid_move_penalty: flat reward for a place/remove that broke the game's
-        own rules -- harsher than off_list_penalty (see module docstring).
+        own rules
     positive_progress_weight / negative_progress_weight: scaling applied to
         progress_delta before summing with completion/efficiency bonuses.
-        Left at symmetric 1.0/1.0 by default -- see module docstring for why
-        (potential-based shaping / telescoping to final progress). Exposed
-        as kwargs in case asymmetric exploration incentives are worth
-        revisiting later, but that's now a deliberate opt-in, not the default.
     """
     reward_info = {
         "action": move_dict.get("action"),
