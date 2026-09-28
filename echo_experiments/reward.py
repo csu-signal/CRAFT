@@ -62,7 +62,7 @@ def compute_builder_reward(
         reward_info["training_reward"] = clarify_penalty
         return clarify_penalty, reward_info
 
-    if move_invalid:.
+    if move_invalid:
         reward_info["invalid_move_penalty"] = invalid_move_penalty
         reward_info["training_reward"] = invalid_move_penalty
         return invalid_move_penalty, reward_info
