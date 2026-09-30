@@ -105,9 +105,10 @@ episode is saved as it finishes; rerun with the same `--run_name` and
 `--resume` to continue a crashed run.
 
 Give every condition a unique `--label` and put them all in the same
-`--out_dir`. Run from `echo_experiments/` with
-`HF_HOME=/data/huggingface_cache`, adding
-`--episodes_per_structure 3 --out_dir eval_results_v2` to each command:
+`--out_dir`. Run from `echo_experiments/`, adding
+`--episodes_per_structure 3 --out_dir eval_results_v2` to each command.
+Model weights download to `$HF_HOME` (set to `/data/sifat/hf_cache` on the
+`craft` conda env, since the root disk can't hold 32B/72B checkpoints):
 
 ```bash
 # local builders (eval_full_game.py); --gpus picks the GPU, --quantize 4bit for large models

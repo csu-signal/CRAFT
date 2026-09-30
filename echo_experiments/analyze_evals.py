@@ -55,7 +55,6 @@ def main():
     print(f"[analysis] {len(df)} episodes, {len(conditions)} conditions: "
           + ", ".join(f"{c.label} (n={int((df['label'] == c.label).sum())})" for c in conditions))
 
-    # one computation feeds both figures and tables, so they can't disagree
     all_metrics = list({m.key: m for m in fig_metrics + table_metrics}.values())
     res = tables.compute(df, conditions, all_metrics, reference)
     jobs = [(name, m) for name in args.figures for m in (fig_metrics if name in PER_METRIC else [None])]

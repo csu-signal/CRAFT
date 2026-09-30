@@ -58,6 +58,8 @@ def metric_bar(df, conditions, metric, reference, res):
     conds = [c for c in conditions if c.label in rows.index and not np.isnan(rows.loc[c.label, "mean"])]
     if not conds:
         return None
+    # tallest bar first (stable, so ties keep the registry order); the legend follows the bars
+    conds.sort(key=lambda c: -rows.loc[c.label, "mean"])
     n = len(conds)
     fig, ax = plt.subplots(figsize=(max(3.6, 0.42 * n + 1.4), 3.4))
     xs = np.arange(n)

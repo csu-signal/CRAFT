@@ -14,7 +14,7 @@ from .registry import parse_label, short_model_name
 # those differ by design between checkpoints and the API baseline.
 COMPARABILITY_KEYS = ["director_mode", "director_model", "oracle_n", "max_turns", "n_structures",
                       "episodes_per_structure", "part_type"]
-# Mixing these isn't a fairness caveat, it's a different experiment: refuse.
+
 MUST_MATCH_KEYS = ["structures_sha", "oracle_in_prompt"]
 
 

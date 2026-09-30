@@ -24,8 +24,6 @@ class Method:
     color: str
     marker: str = "o"
     kind: str = "trained"  # "trained" or "baseline"
-    # How a condition is named in figures/tables; {model} is the builder's
-    # base model from the run config (e.g. "Qwen2.5-7B"), {name} is `display`.
     name_fmt: str = "{model} + {name}"
     aliases: tuple = ()  # other label prefixes that mean this method
 
@@ -48,7 +46,7 @@ METHODS = [
     Method("episode_return", "GRPO", "#c65a66", "o", aliases=("grpo",)),
     Method("rloo_per_turn", "RLOO", "#d9a441", "o", aliases=("rloo",)),
     Method("cot", "CoT", "#d88bb0", "o", kind="baseline"),
-    Method("base", "zero-shot", "#a9a9a9", "o", kind="baseline", name_fmt="{model} ({name})"),
+    Method("base", "zero-shot", "#a9a9a9", "o", kind="baseline", name_fmt="{model}"),
 ]
 
 
@@ -57,7 +55,9 @@ MODEL_STYLES = {
     "Claude Sonnet 4.6": "#607fb0",
     "GPT-5.4 mini": "#8a7fb5",
     "GPT-4.1 mini": "#7897bc",
-    "Qwen2.5-72B 4-bit": "#595959",
+    # listed largest first: this order is also the bar/legend order
+    "Qwen2.5-72B 4-bit": "#f2c230",  # yellow
+    "Qwen2.5-32B 4-bit": "#eb9834",  # orange
     "Qwen2.5-14B": "#a86b32",
     "Qwen2.5-7B": "#a9a9a9",
 }
