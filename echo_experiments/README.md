@@ -160,19 +160,19 @@ Options:
 | `--labels` | all | only these eval `--label`s |
 | `--reference` | `base_7b` | label every condition is paired against in the comparison table |
 | `--metrics` | all non-diagnostic | one bar chart per metric |
-| `--table_metrics` | all | table columns |
+| `--table_metrics` | all non-diagnostic | table columns; name a diagnostic metric (`reward_mean`, `director_failure_rate`, `completion_tokens_mean`) to add it back |
 | `--figures` | `bar progress_curve` | which figure types to draw |
 
 Outputs in `--out`:
 
 | File | Contents |
 |---|---|
-| `bar_<metric>.png` | one bar per condition (mean + 95% CI), value above each bar, arrow on the y-axis for which direction is better, legend below; ECHO outlined in black |
-| `progress_curve.png` | cumulative progress vs turn, one line per condition with a 95% CI band |
+| `bar_<metric>.png` | one bar per condition (mean ± SEM), value above each bar, arrow on the y-axis for which direction is better, legend below; ECHO outlined in black |
+| `progress_curve.png` | cumulative progress vs turn, one line per condition with a ± SEM band |
 | `legend_bar.png`, `legend_line.png` | the legend alone, for assembling multi-panel figures |
-| `results.md` | main table (mean with 95% CI, best per column in bold) and paired differences vs `--reference` |
+| `results.md` | main table (mean ± SEM, best per column in bold) and paired differences vs `--reference` |
 | `results.tex` | the main table as a booktabs LaTeX table (`\usepackage{booktabs}`) |
-| `results.csv` | every estimate, CI and paired test as raw numbers |
+| `results.csv` | every estimate, SEM and paired test as raw numbers |
 
 The analysis refuses to run when the runs in a directory don't belong
 together, and warns when they're comparable but set up differently:
@@ -187,9 +187,11 @@ together, and warns when they're comparable but set up differently:
 
 **Statistics.** Structures are the unit of analysis. Each structure's
 episodes are averaged first, so 20 structures × 3 episodes gives n = 20, not
-60. CIs are a percentile bootstrap over structures (Wilson for completion).
-Comparisons against `--reference` are paired on the structures both
-conditions ran: a sign-flip permutation test, Holm-corrected across metrics.
+60. Tables and error bars show mean ± SEM (SD / √n over the structure
+means), which is roughly a 68% interval, not 95%. Comparisons against
+`--reference` are paired on the structures both conditions ran: Δ ± SEM of
+the per-structure differences, with a sign-flip permutation test,
+Holm-corrected across metrics (the † in the tables).
 
 **Names, colours and order** come from the eval label and the run's model:
 `echo`, `rloo`, `grpo`, `cot_*`, `base_*` (e.g. "Qwen2.5-72B 4-bit

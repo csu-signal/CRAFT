@@ -17,7 +17,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 
-from .stats import ci
+from .stats import sem
 from .style import INK
 
 BAR_W = 0.78
@@ -52,7 +52,7 @@ def _legend_below(ax, conditions, kind="bar", ncol=2):
 
 
 def metric_bar(df, conditions, metric, reference, res):
-    """One colour-coded bar per condition: mean with 95% CI error bars and
+    """One colour-coded bar per condition: mean with +-SEM error bars and
     the value above each bar, like the paper's 'Task resolution' panel."""
     rows = res[res["metric"] == metric.key].set_index("label")
     conds = [c for c in conditions if c.label in rows.index and not np.isnan(rows.loc[c.label, "mean"])]
@@ -65,13 +65,12 @@ def metric_bar(df, conditions, metric, reference, res):
     xs = np.arange(n)
     scale = 100 if metric.percent else 1
     means = np.array([rows.loc[c.label, "mean"] for c in conds]) * scale
-    los = np.array([rows.loc[c.label, "ci_lo"] for c in conds]) * scale
-    his = np.array([rows.loc[c.label, "ci_hi"] for c in conds]) * scale
+    sems = np.array([rows.loc[c.label, "sem"] for c in conds]) * scale
+    los, his = means - sems, means + sems
 
     for x, c, m in zip(xs, conds, means):
         ax.bar(x, m, width=BAR_W, color=c.color, zorder=2, **(OURS_EDGE if c.is_ours else {}))
     has_ci = ~np.isnan(los)
-    # clip: with identical values the bootstrap bounds can sit a float epsilon past the mean
     yerr = np.clip([means[has_ci] - los[has_ci], his[has_ci] - means[has_ci]], 0, None)
     ax.errorbar(xs[has_ci], means[has_ci], yerr=yerr, fmt="none", ecolor="black",
                 elinewidth=1.0, capsize=3, capthick=1.0, zorder=3)
@@ -123,7 +122,7 @@ def _curves(df, label, gain):
 
 
 def progress_curve(df, conditions, metric, reference, res, gain=True):
-    """Cumulative progress vs turn, one line per condition with a 95% CI
+    """Cumulative progress vs turn, one line per condition with a +-SEM
     band over structures -- like the paper's per-turn line panels."""
     fig, ax = plt.subplots(figsize=(4.6, 3.4))
     drawn, last_turn = [], 0
@@ -131,7 +130,7 @@ def progress_curve(df, conditions, metric, reference, res, gain=True):
         curves, turns = _curves(df, c.label, gain)
         if curves is None:
             continue
-        est = [ci(curves[:, t]) for t in range(curves.shape[1])]
+        est = [sem(curves[:, t]) for t in range(curves.shape[1])]
         mean, lo, hi = (np.array([getattr(e, k) for e in est]) * 100 for k in ("mean", "lo", "hi"))
         ax.fill_between(turns, lo, hi, color=c.color, alpha=0.12, lw=0, zorder=1)
         ax.plot(turns, mean, color=c.color, lw=2.2 if c.is_ours else 1.5, marker=c.method.marker,

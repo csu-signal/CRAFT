@@ -3,7 +3,7 @@ Results tables in three renderings from one computed frame: CSV (raw
 numbers, for anything downstream), Markdown (notes / PR descriptions), and
 LaTeX booktabs (paste into the paper; needs \\usepackage{booktabs}).
 
-Main table cell: mean with 95% CI half-width as a subscript; best per
+Main table cell: mean +- SEM over structures; best per
 column in bold (only for metrics with a direction); a dagger where the
 paired difference vs the reference survives Holm correction at alpha=0.05.
 """
@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from .load import structure_units
-from .stats import ALPHA, ci, holm, paired_diff
+from .stats import ALPHA, holm, paired_diff, sem
 
 
 def compute(df, conditions, metrics, reference=None):
@@ -21,13 +21,13 @@ def compute(df, conditions, metrics, reference=None):
         tests = []
         for metric in metrics:
             units = structure_units(df, cond.label, metric.key)
-            est = ci(units.to_numpy(), binary=metric.binary)
+            est = sem(units.to_numpy())
             row = {"condition": cond.display, "label": cond.label, "metric": metric.key,
-                   "mean": est.mean, "ci_lo": est.lo, "ci_hi": est.hi, "n_structures": est.n,
+                   "mean": est.mean, "sem": est.sem, "n_structures": est.n,
                    "n_episodes": int((df["label"] == cond.label).sum())}
             if reference is not None and cond.label != reference.label:
                 pdiff = paired_diff(units, structure_units(df, reference.label, metric.key))
-                row.update(diff=pdiff.diff, diff_lo=pdiff.lo, diff_hi=pdiff.hi, p=pdiff.p, n_paired=pdiff.n)
+                row.update(diff=pdiff.diff, diff_sem=pdiff.sem, p=pdiff.p, n_paired=pdiff.n)
                 tests.append(len(rows))
             rows.append(row)
         # Holm across this condition's metrics (one family per comparison)
@@ -48,18 +48,11 @@ def _cell_value(metric, v):
     return f"{_scale(metric, v):.{metric.decimals}f}"
 
 
-def _ci_text(metric, r, latex=False):
-    """Half-width when the CI is roughly symmetric, else the explicit
-    interval -- Wilson CIs near 0%/100% are lopsided, and "0.0 +- 8.1"
-    would imply negative rates."""
-    lo, hi, mean = _scale(metric, r["ci_lo"]), _scale(metric, r["ci_hi"]), _scale(metric, r["mean"])
-    if pd.isna(lo):
+def _sem_text(metric, r, latex=False):
+    if pd.isna(r["sem"]):
         return ""
-    d = metric.decimals
-    hw = (hi - lo) / 2
-    if hw > 0 and abs((mean - lo) - (hi - mean)) > 0.25 * hw:
-        return rf"_{{[{lo:.{d}f}, {hi:.{d}f}]}}" if latex else f" [{lo:.{d}f}, {hi:.{d}f}]"
-    return rf"_{{\pm {hw:.{d}f}}}" if latex else f" ± {hw:.{d}f}"
+    s = f"{_scale(metric, r['sem']):.{metric.decimals}f}"
+    return rf"_{{\pm {s}}}" if latex else f" ± {s}"
 
 
 def _p(p):
@@ -98,7 +91,7 @@ def main_markdown(res, conditions, metrics):
         for m in metrics:
             r = res[(res["label"] == cond.label) & (res["metric"] == m.key)].iloc[0]
             v = _cell_value(m, r["mean"])
-            cell = (f"**{v}**" if cond.label in best.get(m.key, ()) else v) + _ci_text(m, r)
+            cell = (f"**{v}**" if cond.label in best.get(m.key, ()) else v) + _sem_text(m, r)
             if _significant(r):
                 cell += " †"
             cells.append(cell)
@@ -122,7 +115,7 @@ def main_latex(res, conditions, metrics, reference=None, caption=None):
             r = res[(res["label"] == cond.label) & (res["metric"] == m.key)].iloc[0]
             v = _cell_value(m, r["mean"])
             v = rf"\mathbf{{{v}}}" if cond.label in best.get(m.key, ()) else v
-            sub = _ci_text(m, r, latex=True)
+            sub = _sem_text(m, r, latex=True)
             sup = r"^{\dagger}" if _significant(r) else ""
             cells.append(f"${v}{sub}{sup}$")
         lines.append(f"{cond.display} & " + " & ".join(cells) + r" \\")
@@ -131,7 +124,7 @@ def main_latex(res, conditions, metrics, reference=None, caption=None):
                 if reference is not None else "")
     lines += [r"\bottomrule", r"\end{tabular}",
               rf"\caption{{{caption or 'Full-game evaluation on the held-out benchmark.'} "
-              rf"Mean with 95\% CI (half-width, or [low, high] where asymmetric) over {n} structures (bootstrap; Wilson for completion). "
+              rf"Mean $\pm$ SEM over {n} structures (each structure's episodes averaged first). "
               rf"Best per column in bold.{ref_note}}}",
               r"\label{tab:main_results}", r"\end{table}"]
     return "\n".join(lines)
@@ -144,10 +137,11 @@ def comparison_markdown(res, metrics, reference):
     if sub.empty:
         return ""
     lines = [f"Paired difference vs **{reference.display}** (same structures; Δ = condition − reference)", "",
-             "| Condition | Metric | Δ | 95% CI | p | p (Holm) | n |", "|---|---|---:|---:|---:|---:|---:|"]
+             "| Condition | Metric | Δ ± SEM | p | p (Holm) | n |", "|---|---|---:|---:|---:|---:|"]
     for _, r in sub.iterrows():
         m = by_key[r["metric"]]
         f = lambda v: f"{_scale(m, v):+.{m.decimals}f}"
-        lines.append(f"| {r['condition']} | {m.display}{' (pp)' if m.percent else ''} | {f(r['diff'])} | "
-                     f"[{f(r['diff_lo'])}, {f(r['diff_hi'])}] | {_p(r['p'])} | {_p(r['p_holm'])} | {int(r['n_paired'])} |")
+        diff_sem = f"{_scale(m, r['diff_sem']):.{m.decimals}f}"
+        lines.append(f"| {r['condition']} | {m.display}{' (pp)' if m.percent else ''} | {f(r['diff'])} ± {diff_sem} | "
+                     f"{_p(r['p'])} | {_p(r['p_holm'])} | {int(r['n_paired'])} |")
     return "\n".join(lines)

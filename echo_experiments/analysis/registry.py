@@ -36,7 +36,7 @@ class Metric:
     percent: bool = False            # show as % (value is a 0-1 rate)
     bounds: tuple | None = None      # fixed axis range in raw units, e.g. (0, 1)
     decimals: int = 3
-    binary: bool = False             # one 0/1 outcome per episode -> Wilson CI
+    binary: bool = False             # one 0/1 outcome per episode (informational)
     diagnostic: bool = False         # run-health metric: in the tables, not in the default figures
 
 
@@ -56,8 +56,8 @@ MODEL_STYLES = {
     "GPT-5.4 mini": "#8a7fb5",
     "GPT-4.1 mini": "#7897bc",
     # listed largest first: this order is also the bar/legend order
-    "Qwen2.5-72B 4-bit": "#f2c230",  # yellow
-    "Qwen2.5-32B 4-bit": "#eb9834",  # orange
+    "Qwen2.5-72B": "#f2c230",  # yellow
+    "Qwen2.5-32B": "#eb9834",  # orange
     "Qwen2.5-14B": "#a86b32",
     "Qwen2.5-7B": "#a9a9a9",
 }
@@ -88,7 +88,7 @@ _STEP_RE = re.compile(r"^(?P<prefix>.+?)_step(?P<step>\d+)$")
 
 def short_model_name(hf_id, quantize=None):
     """"Qwen/Qwen2.5-7B-Instruct" -> "Qwen2.5-7B"; "gpt-5.4" -> "GPT-5.4";
-    "claude-haiku-4-5" -> "Claude Haiku 4.5"; 4-bit runs are marked."""
+    "claude-haiku-4-5" -> "Claude Haiku 4.5"."""
     if not hf_id:
         return None
     name = re.sub(r"-Instruct$", "", hf_id.rstrip("/").split("/")[-1])
@@ -99,7 +99,7 @@ def short_model_name(hf_id, quantize=None):
         # claude-haiku-4-5 -> Claude Haiku 4.5; gemini-3.8-flash -> Gemini 3.8 Flash
         parts = re.sub(r"(\d)-(\d)", r"\1.\2", name).split("-")
         name = " ".join(p.capitalize() if p.isalpha() else p for p in parts)
-    return f"{name} {quantize.replace('bit', '-bit')}" if quantize else name
+    return name  # quantization is recorded in each run's config, not shown in the name
 
 
 def model_size_b(name):

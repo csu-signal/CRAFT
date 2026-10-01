@@ -9,8 +9,8 @@ Usage:
     python analyze_evals.py --labels base_7b echo rloo grpo
 
 Outputs (in --out):
-    bar_<metric>.png             one figure per metric: colour-coded mean + 95% CI per model, legend below
-    progress_curve.png           cumulative progress vs turn, one line per model, 95% CI bands
+    bar_<metric>.png             one figure per metric: colour-coded mean ± SEM per model, legend below
+    progress_curve.png           cumulative progress vs turn, one line per model, ± SEM bands
     legend_{bar,line}.png        the legend alone, for assembling multi-panel figures
     results.csv                  every estimate, CI and paired test
     results.md / results.tex     formatted tables
@@ -38,7 +38,8 @@ def main():
                         help="label every condition is paired against (vertical line, dagger, comparison table)")
     parser.add_argument("--metrics", nargs="*", default=[m.key for m in METRICS if not m.diagnostic],
                         help=f"one figure per metric; any of {[m.key for m in METRICS]}")
-    parser.add_argument("--table_metrics", nargs="*", default=None, help="table columns (default: all metrics)")
+    parser.add_argument("--table_metrics", nargs="*", default=None,
+                        help="table columns (default: all non-diagnostic metrics; pass e.g. director_failure_rate to add one back)")
     parser.add_argument("--figures", nargs="*", default=list(FIGURES), choices=list(FIGURES))
     parser.add_argument("--formats", nargs="*", default=["png"])
     args = parser.parse_args()
@@ -49,7 +50,8 @@ def main():
     if reference is None:
         print(f"[analysis] reference {args.reference!r} not found -- skipping paired tests")
     fig_metrics = [METRICS_BY_KEY[k] for k in args.metrics]
-    table_metrics = [METRICS_BY_KEY[k] for k in args.table_metrics] if args.table_metrics else METRICS
+    table_metrics = ([METRICS_BY_KEY[k] for k in args.table_metrics] if args.table_metrics
+                     else [m for m in METRICS if not m.diagnostic])
     out = Path(args.out)
 
     print(f"[analysis] {len(df)} episodes, {len(conditions)} conditions: "
@@ -75,6 +77,12 @@ def main():
     res = res[res["metric"].isin([m.key for m in table_metrics])]
     res.to_csv(out / "results.csv", index=False)
     md = tables.main_markdown(res, conditions, table_metrics)
+    n_struct = int(res["n_structures"].max())
+    md += (f"\n\nCells: mean ± SEM over {n_struct} structures (each structure's episodes averaged first). "
+           f"**Bold**: best in the column (metrics with a direction only).")
+    if reference is not None:
+        md += (f" †: differs from {reference.display} (paired sign-flip test on the same structures, "
+               f"Holm-corrected across this row's metrics, p < 0.05).")
     if reference is not None:
         md += "\n\n" + tables.comparison_markdown(res, table_metrics, reference)
     (out / "results.md").write_text(md + "\n")

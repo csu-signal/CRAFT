@@ -1,66 +1,60 @@
 """
 Uncertainty and paired comparisons over structure-level units.
 
-  * ci():          95% CI of a condition's mean -- Wilson for 0/1 outcomes
-                   (bootstrap collapses to [p, p] at 0% or 100%), otherwise a
-                   percentile bootstrap over structures.
-  * paired_diff(): difference vs a reference on the structures both ran,
-                   with a bootstrap CI and a sign-flip permutation p-value
-                   (exact up to 20 structures, Monte Carlo beyond). No
-                   normality assumption, which matters for bounded rates.
+The unit is the structure: every condition plays the same structures, and a
+structure's episodes are averaged first (they share the structure, so they
+aren't independent samples). With 20 structures, n = 20.
+
+  * sem():         mean +- standard error of the mean (SD / sqrt(n), ddof=1)
+                   over structure means. +-1 SEM is roughly a 68% interval,
+                   not 95% -- figures and tables say "+- SEM".
+  * paired_diff(): difference vs a reference on the structures both ran:
+                   mean +- SEM of the per-structure differences, and a
+                   sign-flip permutation p-value (exact up to 20 structures,
+                   Monte Carlo beyond).
   * holm():        family-wise correction across the metrics compared.
 """
 from dataclasses import dataclass
 
 import numpy as np
-from scipy import stats as sps
 
-N_BOOT = 10_000
 ALPHA = 0.05
 
 
 @dataclass
 class Estimate:
     mean: float
-    lo: float
-    hi: float
+    sem: float
     n: int
 
     @property
-    def half_width(self):
-        return (self.hi - self.lo) / 2
+    def lo(self):
+        return self.mean - self.sem
+
+    @property
+    def hi(self):
+        return self.mean + self.sem
 
 
 @dataclass
 class PairedDiff:
     diff: float
-    lo: float
-    hi: float
+    sem: float
     p: float
     n: int
     p_holm: float = float("nan")
 
 
-def ci(values, binary=False, seed=0):
+def _sem(x):
+    return float(x.std(ddof=1) / np.sqrt(len(x))) if len(x) > 1 else float("nan")
+
+
+def sem(values):
     x = np.asarray(values, dtype=float)
-    n = len(x)
-    if n == 0:
-        return Estimate(np.nan, np.nan, np.nan, 0)
-    mean = float(x.mean())
-    if n == 1:
-        return Estimate(mean, np.nan, np.nan, 1)
-    # Wilson only for genuinely 0/1 outcomes (one per structure) -- a rate
-    # metric that happens to be all zeros must not get a binomial interval
-    if binary and np.isin(x, (0.0, 1.0)).all():
-        z = sps.norm.ppf(1 - ALPHA / 2)
-        denom = 1 + z**2 / n
-        centre = (mean + z**2 / (2 * n)) / denom
-        half = z * np.sqrt(mean * (1 - mean) / n + z**2 / (4 * n**2)) / denom
-        return Estimate(mean, centre - half, centre + half, n)
-    rng = np.random.default_rng(seed)
-    boots = x[rng.integers(0, n, size=(N_BOOT, n))].mean(axis=1)
-    lo, hi = np.quantile(boots, [ALPHA / 2, 1 - ALPHA / 2])
-    return Estimate(mean, float(lo), float(hi), n)
+    x = x[~np.isnan(x)]
+    if len(x) == 0:
+        return Estimate(np.nan, np.nan, 0)
+    return Estimate(float(x.mean()), _sem(x), len(x))
 
 
 def paired_diff(a, b, seed=0):
@@ -69,10 +63,7 @@ def paired_diff(a, b, seed=0):
     d = (a.loc[common] - b.loc[common]).to_numpy(dtype=float)
     n = len(d)
     if n < 2:
-        return PairedDiff(float(d.mean()) if n else np.nan, np.nan, np.nan, np.nan, n)
-    rng = np.random.default_rng(seed)
-    boots = d[rng.integers(0, n, size=(N_BOOT, n))].mean(axis=1)
-    lo, hi = np.quantile(boots, [ALPHA / 2, 1 - ALPHA / 2])
+        return PairedDiff(float(d.mean()) if n else np.nan, np.nan, np.nan, n)
 
     observed = abs(d.mean()) - 1e-12
     bits = np.arange(n)
@@ -84,9 +75,9 @@ def paired_diff(a, b, seed=0):
             hits += int((np.abs(signs @ d) / n >= observed).sum())
         p = hits / total
     else:
-        signs = rng.choice((1.0, -1.0), size=(100_000, n))
+        signs = np.random.default_rng(seed).choice((1.0, -1.0), size=(100_000, n))
         p = float((np.abs(signs @ d) / n >= observed).mean())
-    return PairedDiff(float(d.mean()), float(lo), float(hi), p, n)
+    return PairedDiff(float(d.mean()), _sem(d), p, n)
 
 
 def holm(pvals):
