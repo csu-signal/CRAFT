@@ -16,16 +16,7 @@ from structure_generator_v2 import (
        get_block_encoding_reference,       
     get_coordinate_system_reference     
 )
-# from oracle import enumerate_correct_actions
 
-# Canonical builder system prompts -- single source of truth so every caller
-# (this file's own generate_move, echo_experiments' training rollout, and any
-# evaluation/sanity-check script) sends the model the exact same task framing
-# run_craft.py's own API builder path uses. In particular, the oracle variant
-# explicitly requires picking one of the pre-validated candidates rather than
-# freely improvising a placement -- since a sampled oracle candidate is by
-# construction physically legal, a builder that actually complies with this
-# instruction should rarely fail EnhancedGameState's own move validation.
 BUILDER_SYSTEM_PROMPT_ORACLE = (
     "You are a Builder in a collaborative LEGO task. "
     "You have been given VERIFIED CANDIDATE MOVES — you MUST choose exactly one from the list. "
