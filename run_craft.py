@@ -203,7 +203,8 @@ def run_craft_experiments(
                 structure_index=structure_index,  
                 run=run,
                 max_tokens=max_tokens, 
-                single_instance =  single_client if SINGLE_MODEL else None                        
+                single_instance =  single_client if SINGLE_MODEL else None,
+                previousData = PREVIOUS_DATA_PATH                         
             )
             for did in ["D1", "D2", "D3"]
         }
@@ -612,9 +613,9 @@ if __name__ == "__main__":
                         help="Builder model name")
     parser.add_argument("--builderPrompt",  type=str, default="Literal1",
                             help="Builder prompt add in name")
-    parser.add_argument("--dataset",        type=str, default="/home/traceteam/CRAFT/data/structures_dataset_20.json",
+    parser.add_argument("--dataset",        type=str, default="/home/hannah/CRAFT/CRAFT/data/structures_dataset_20.json",
                         help="Path to structures dataset JSON")
-    parser.add_argument("--previousDataSettings", type=str, default="/home/traceteam/CRAFT/previousRunData",
+    parser.add_argument("--previousDataSettings", type=str, default="/home/hannah/CRAFT/CRAFT/previousRunData",
                     help="Path to previous data folder if replicating settings")
     parser.add_argument("--output",         type=str, default=None,
                         help="Output directory (default: auto-generated from builder model)")
@@ -678,10 +679,10 @@ if __name__ == "__main__":
     #}
 
     LOCAL_MODELS = {
-        # "qwen-7b":          "/data/open-weight-llms/models/qwen-7b",
-        # "qwen7b_dpo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
-        # "qwen7b_sft_r32_builder" :"/data/open-weight-llms/models/qwen-7b",
-        # "qwen7b_ipo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
+        "qwen-7b":          "/data/open-weight-llms/models/qwen-7b",
+        "qwen7b_dpo_r32_from_sft" : "/data/dpip_agent_weights/DPO_builder_preference_weights/qwen7b_dpo_r32_from_sft",
+        "qwen7b_sft_r32_builder" :"/data/dpip_agent_weights/SFT_builder_preference_weights/qwen7b_sft_r32_builder",
+        "qwen7b_ipo_r32_from_sft" : "/data/dpip_agent_weights/IPO_weights/qwen7b_ipo_r32_from_sft",
 
         "qwen-3.5-9b":          "/data/open-weight-llms/models/qwen-3.5-9b",
         "qwen-3.5-9b_dpo_r32_from_sft" : "/data/dpip_agent_weights/DPO_builder_preference_weights/qwen-3.5-9b_dpo_r32_from_sft",
@@ -767,7 +768,10 @@ if __name__ == "__main__":
 
     def run_all_structures(director_model_name, shared_model=None, shared_tokenizer=None):
         for structure_index in structure_indices:
-            with open(f'{PREVIOUS_DATA_PATH}/dpip_structure_{structure_index + 1:03d}_{RUN}.json', 'r', encoding='utf-8') as file:
+            filepath = f'{PREVIOUS_DATA_PATH}/dpip_structure_{structure_index + 1:03d}_{RUN}.json'
+            if not os.path.exists(filepath):
+                filepath = f'{PREVIOUS_DATA_PATH}/craft_structure_{structure_index + 1:03d}_{RUN}.json'
+            with open(filepath, 'r', encoding='utf-8') as file:
                 data = json.load(file)
                 partType = data['games'][0]['partialCompletionCategory']
                 

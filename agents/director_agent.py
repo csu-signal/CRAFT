@@ -80,7 +80,10 @@ class DirectorAgent:
         # rng  = random.Random(seed)
         #self.archetype   = rng.choice(DirectorAgent.TYPES)
         if os.path.isdir(previousData):
-            with open(f'{previousData}/dpip_structure_{structure_index + 1:03d}_{run}.json', 'r', encoding='utf-8') as file:
+            filepath = f"{previousData}/dpip_structure_{structure_index + 1:03d}_{run}.json"
+            if not os.path.exists(filepath):
+                filepath = f"{previousData}/craft_structure_{structure_index + 1:03d}_{run}.json"
+            with open(filepath, 'r', encoding='utf-8') as file:
                 data = json.load(file)
                 self.archetype = data['games'][0][f'{director_id} Archetype']
         self.personality = DirectorAgent.ARCHETYPES[self.archetype]
