@@ -74,7 +74,7 @@ from craft_full_info_env import (
     BLOCKS, CELLS, DIRECTORS, INTERIOR_CELLS, WALLS,
     Board, OraclePolicy, ViewsPolicy, classify_turn, compute_metrics,
     enumerate_oracle_moves, load_structures, min_moves, move_matches, norm_pos,
-    project_all_views, sample_oracle_moves, target_views, views_ceiling,
+    project_all_views, sample_oracle_moves, start_board, target_views, views_ceiling,
 )
 
 # --------------------------------------------------------------------------- #
@@ -642,11 +642,19 @@ def build_turn_record(t, move, res, cands, shown, board_before, board, metrics, 
     return rec
 
 
-def play_game(entry: Dict, policy, cfg: argparse.Namespace, run: int, checkpoint=None) -> Dict:
+def play_game(entry: Dict, structure_index: int, policy, cfg: argparse.Namespace, run: int, previousData, checkpoint=None) -> Dict:
+    partType = "empty"
+    filepath = f'{previousData}/dpip_structure_{structure_index + 1:03d}_{run}.json'
+    if not os.path.exists(filepath):
+        filepath = f'{previousData}/craft_structure_{structure_index + 1:03d}_{run}.json'
+    with open(filepath, 'r', encoding='utf-8') as file:
+        data = json.load(file)
+        partType = data['games'][0]['partialCompletionCategory']
+
     sid = entry["id"]
     target = Board.from_structure(entry)
     views = target_views(entry, cfg.views_source)
-    board = Board()
+    board = start_board(entry, partType)
     history: List[str] = []
     turns: List[Dict] = []
     done_at = None
@@ -1122,7 +1130,7 @@ def main(argv=None) -> None:
                     g = play_game_directors(entry, entry["_index"], builder_be, director_be, cfg, run, PREVIOUS_DATA_PATH,
                                             checkpoint=ckpt)
                 else:
-                    g = play_game(entry, policy, cfg, run, checkpoint=ckpt)
+                    g = play_game(entry, entry["_index"], policy, cfg, run, PREVIOUS_DATA_PATH, checkpoint=ckpt)
             except BackendDown as exc:
                 print(f"\n[ABORT] {exc}")
                 print(f"  Partial game log: {partial}")

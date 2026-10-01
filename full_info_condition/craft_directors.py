@@ -40,7 +40,7 @@ from typing import Dict, List, Optional
 
 from craft_full_info_env import (
     BLOCKS, DIRECTORS, Board, enumerate_oracle_moves, compute_metrics, min_moves,
-    sample_oracle_moves, target_views, views_ceiling,
+    sample_oracle_moves, start_board, target_views, views_ceiling,
 )
 
 try:   # real CRAFT reference strings when running inside the CRAFT repo
@@ -606,11 +606,20 @@ def play_game_directors(entry: Dict, structure_index: int, builder_backend, dire
         decide_move, build_turn_record, format_move, token_totals, _seed_for, config_dict, BackendDown,
         turn_backend_failed, is_generation_abort,
     )
+    partType = "empty"
+    filepath = f'{previousData}/dpip_structure_{structure_index + 1:03d}_{run}.json'
+    if not os.path.exists(filepath):
+        filepath = f'{previousData}/craft_structure_{structure_index + 1:03d}_{run}.json'
+    with open(filepath, 'r', encoding='utf-8') as file:
+        data = json.load(file)
+        partType = data['games'][0]['partialCompletionCategory']
+
+
     sid = entry["id"]
     mode = cfg.director_views
     target = Board.from_structure(entry)
     views = target_views(entry, cfg.views_source)
-    board = Board()
+    board = start_board(entry, partType)
     archetypes = {d: assign_archetype(structure_index, d, run, previousData) for d in DIRECTORS}
     print(f"  archetypes: {archetypes}  | director views: {mode}")
     dialogue: List[Dict] = []
