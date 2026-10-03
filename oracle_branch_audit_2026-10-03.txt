@@ -1,0 +1,68 @@
+test_buried_delta (test_oracle_branch_audit.CandidateDelta) ... ok
+test_clean_prefixes_and_excess_keep_identical_candidates (test_oracle_branch_audit.CandidateDelta) ... ok
+test_every_single_wrong_layer_at_every_nonempty_depth (test_oracle_branch_audit.CandidateDelta) ... ok
+test_short_wrong_top_delta (test_oracle_branch_audit.CandidateDelta) ... ok
+test_blocked_large_removal_fails_without_mutation (test_oracle_branch_audit.CurrentBehavior) ... ok
+test_buried_wrong_remove_replace_cycle (test_oracle_branch_audit.CurrentBehavior) ... ok
+test_default_invisible_rule_differs_from_original_suite (test_oracle_branch_audit.CurrentBehavior) ... ok
+test_enumeration_does_not_mutate_board_or_target (test_oracle_branch_audit.CurrentBehavior) ... ok
+test_exact_target_has_no_moves (test_oracle_branch_audit.CurrentBehavior) ... ok
+test_four_pathways (test_oracle_branch_audit.CurrentBehavior) ... ok
+test_large_placement_dedup_and_atomic_removal (test_oracle_branch_audit.CurrentBehavior) ... ok
+test_missing_span_is_not_an_ok_candidate (test_oracle_branch_audit.CurrentBehavior) ... ok
+test_oracle_flag_and_environment_score_differ_for_clearing (test_oracle_branch_audit.CurrentBehavior) ... ok
+ok
+test_short_corrupt_stack_currently_gets_place (test_oracle_branch_audit.CurrentBehavior) ... ok
+test_unequal_support_heights_reject_large_placement (test_oracle_branch_audit.CurrentBehavior) ... ok
+ok
+Injection counts [cases, current exact repairs, candidate exact repairs]: {'top_short': [45, 0, 45], 'buried_short': [22, 0, 22], 'buried_full': [45, 0, 45], 'top_full': [29, 29, 29]}
+Identical candidate lists on 103 clean-prefix states
+ok
+Default rules: exact 6/20; targets with forbidden spans: 14
+ok
+test_95_percent_completion_does_not_guarantee_exact_target (test_oracle_branch_audit.KnownGaps) ... expected failure
+test_current_oracle_should_repair_buried_wrong (test_oracle_branch_audit.KnownGaps) ... expected failure
+test_local_prefix_fix_does_not_resolve_cross_cell_blockers (test_oracle_branch_audit.KnownGaps) ... expected failure
+test_matching_codes_wrong_span_topology_should_offer_repair (test_oracle_branch_audit.KnownGaps) ... expected failure
+test_partial_first_layer_must_record_large_spans (test_oracle_branch_audit.KnownGaps) ... expected failure
+test_partial_wall_must_not_alias_target (test_oracle_branch_audit.KnownGaps) ... expected failure
+test_short_corrupt_stack_should_offer_removal (test_oracle_branch_audit.KnownGaps) ... expected failure
+test_stray_blocks_outside_sparse_target_should_be_removed (test_oracle_branch_audit.KnownGaps) ... expected failure
+test_net_progress_over_rollout_current_vs_candidate (test_oracle_branch_audit.ProgressChecks)
+ok
+test_per_move_progress_delta_by_source (test_oracle_branch_audit.ProgressChecks)
+ok
+
+----------------------------------------------------------------------
+Ran 29 tests in 4.362s
+
+OK (expected failures=8)
+
+------------------------------------------------------------------------------
+PROGRESS REPORT — environment overall_progress, measured on dataset states
+------------------------------------------------------------------------------
+
+Per-move Δprogress by enumeration branch (all ok candidates):
+
+  branch                     n    Δ>0    Δ=0    Δ<0   mean Δprog  mean Δblocks
+  expose_buried_wrong       45      0      0     45      -0.0283         -1.00
+  target_place             141    141      0      0      +0.0359         +1.00
+  wrong_block_remove        29     22      7      0      +0.0166         +0.00
+
+  ALL                      215    163      7     45
+  advancing 75.8% | flat 3.3% | regressive 20.9%
+  NOT EXERCISED here: excess_remove — injection_cases only
+  truncates or corrupts a stack, never over-builds it. Branch correctness
+  is covered by CurrentBehavior.test_four_pathways; its Δprogress is not.
+
+Net Δprogress across a full rollout from each injected corruption:
+
+  corruption          n  current exact  cand exact   cur net Δ  cand net Δ  cur cycles
+  buried_full        45              0          45      +0.000      +3.129          45
+  buried_short       22              0          22      +0.000      +2.149          22
+  top_full           29             29          29      +2.126      +2.126           0
+  top_short          45              0          45      +0.664      +5.068          45
+  OVERALL           141             29         141      +2.790     +12.472         112
+
+  exact-repair rate: current 20.6% -> candidate 100.0% (+79.4%)
+------------------------------------------------------------------------------
