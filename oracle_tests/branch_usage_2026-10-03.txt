@@ -1,0 +1,45 @@
+------------------------------------------------------------------------------
+ORACLE BRANCH USAGE — recovered from logged oracle_moves
+------------------------------------------------------------------------------
+
+  result files            : 78
+  conditions              : 4
+      claude-sonnet-4-6_gpt-5.4-mini
+      gemini-2.5-flash_gpt-5.4-mini
+      gpt-4o-mini_3k_gpt-5.4-mini
+      gpt-4o-mini_gpt-5.4-mini
+  turns with a board state: 1517
+  turns with suggestions  : 1360
+
+  REPLAY FIDELITY — logged moves matched to a re-enumerated candidate
+    shown 4625   matched 4625   (100.0%)
+    exact — every logged suggestion reproduced by replay
+
+  branch                       shown   % shown   executed   (loose)
+  target_place                  3728     80.6%        813       813
+  target_place_ON_CORRUPT        413      8.9%        105       105
+  expose_buried_wrong            350      7.6%         52        52
+  wrong_block_remove             128      2.8%         29        29
+  excess_remove                    6      0.1%          2         2
+  TOTAL                         4625                 1001      1001
+
+  Per condition (suggestions shown):
+
+  condition                                      target_place  target_place_ON_CORRUPT      expose_buried_wrong       wrong_block_remove            excess_remove
+  claude-sonnet-4-6_gpt-5.4-mini                          811                       58                       66                       14                        0
+  gemini-2.5-flash_gpt-5.4-mini                          1036                       81                       34                       14                        0
+  gpt-4o-mini_3k_gpt-5.4-mini                             952                      165                      148                       43                        4
+  gpt-4o-mini_gpt-5.4-mini                                929                      109                      102                       57                        2
+
+  Two distinct failures, with very different costs:
+
+    expose_buried_wrong        52 executed ( 5.2% of followed)
+      Wastes the turn. The removed block is re-placed next turn, so the
+      board returns to where it was — recoverable, just unproductive.
+
+    target_place_ON_CORRUPT   105 executed (10.5% of followed)
+      Buries a wrong block under a correct one. No branch can reach a wrong
+      block below the top of a short stack, so the cell becomes unrepairable.
+      This is the damaging one, and it scores as progress: structurePlacement
+      is True and blocks_placed_correctly increases.
+------------------------------------------------------------------------------

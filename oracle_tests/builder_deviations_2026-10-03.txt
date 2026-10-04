@@ -1,0 +1,56 @@
+------------------------------------------------------------------------------
+BUILDER DEVIATIONS — what the Builder did when it ignored the oracle
+------------------------------------------------------------------------------
+
+  result files : 78   conditions : 4
+  turns with both a suggestion list and an attempted move : 1360
+    matched a suggestion :  1001 (73.6%)
+    deviated             :   359 (26.4%)
+
+  deviation                                    n   % turns  % of dev   engine rejected
+  A. different cell entirely                 191     14.0%     53.2%                26
+  B. right cell, wrong ACTION                 40      2.9%     11.1%                 8
+  C. right cell+action, wrong LAYER            2      0.1%      0.6%                 2
+  D. right slot, wrong COLOUR                 78      5.7%     21.7%                 0
+  E. right slot, wrong SIZE                   11      0.8%      3.1%                 0
+  F. right slot, wrong colour AND size        17      1.2%      4.7%                 2
+  G. right block, wrong SPAN                  20      1.5%      5.6%                 1
+
+  Action swaps: oracle=place -> builder=remove (34), oracle=remove -> builder=place (6)
+  Layer offsets (builder - oracle): {1: 2}
+
+  Block confusions — oracle wanted -> Builder placed:
+
+      os -> gs    (orange small -> green small)     9
+      gs -> bs    (green small -> blue small)     9
+      os -> bs    (orange small -> blue small)     6
+      rs -> os    (red small -> orange small)     6
+      bs -> ys    (blue small -> yellow small)     5
+      gs -> rs    (green small -> red small)     5
+      gl -> gs    (green large -> green small)     4
+      bs -> gs    (blue small -> green small)     4
+      os -> ys    (orange small -> yellow small)     4
+      os -> rs    (orange small -> red small)     3
+
+  Of the 34 'oracle said PLACE, Builder said REMOVE' turns:
+    cell was ALREADY CORRUPT — Builder proposed the repair the enumerator
+      cannot generate, and the taxonomy scores it as an error : 11
+    cell was clean — Builder simply wrong                      : 23
+
+    examples where the Builder was right and the oracle was not:
+      (0,0) current=['gl', 'gl'] target=['gl', 'ys', 'ys'] -> removed layer 1
+      (0,0) current=['gl', 'gs'] target=['gl', 'ys', 'ys'] -> removed layer 1
+      (0,0) current=['yl', 'bs'] target=['yl', 'gl', 'rl'] -> removed layer 1
+      (0,0) current=['gl', 'gl'] target=['gl', 'bs', 'rl'] -> removed layer 1
+      (0,0) current=['bs'] target=['gl', 'rl', 'ol'] -> removed layer 0
+
+  Per condition:
+
+  condition                               A      B      C      D      E      F      G
+  claude-sonnet-4-6_gpt-5.4-mini         38      4      0      6      2      2      5
+  gemini-2.5-flash_gpt-5.4-mini          39     13      0     12      1      2      4
+  gpt-4o-mini_3k_gpt-5.4-mini            66     15      2     27      5      6      7
+  gpt-4o-mini_gpt-5.4-mini               48      8      0     33      3      7      4
+
+  A=cell  B=action  C=layer  D=colour  E=size  F=colour+size  G=span
+------------------------------------------------------------------------------
