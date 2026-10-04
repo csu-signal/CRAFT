@@ -22,7 +22,7 @@ Reported per branch:
 'executed' uses a strict 5-field match. run_craft.py's own
 turn_data['builder_followed_oracle'] matches on action/position/layer only,
 ignoring block and span, so it is reported alongside as a looser upper bound.
-PS: The "failure" cases does not consider the fact that the builder: 1) not forced for follow oracle 2) may still deviate and make a remove operation in cases 
+PS: The "failure" cases do not consider the fact that the builder: 1) not forced for follow oracle 2) may still deviate and make a remove operation in cases 
 oracle suggests a place. 
 
 
