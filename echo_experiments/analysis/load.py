@@ -1,5 +1,5 @@
 """
-Loads eval_results/<run_name>.json files (written by eval_results.save_eval_results)
+Loads eval_results/<run_name>.json files
 into one tidy frame: a row per episode, a column per metric.
 """
 import json
@@ -72,6 +72,15 @@ def _warn_incomparable(configs):
 
 
 def structure_units(df, label, metric):
-    """Per-structure mean of `metric` for one condition; the unit for CIs and paired tests."""
+    """Per-structure mean of `metric` for one condition; the unit for paired tests."""
     sub = df[df["label"] == label]
     return sub.groupby("structure_idx")[metric].mean().dropna()
+
+
+def pass_units(df, label, metric):
+    """Per-pass mean of `metric`: pass k is episode k of every structure."""
+    sub = df[df["label"] == label]
+    return sub.groupby("rep")[metric].mean().dropna()
+
+
+SEM_UNITS = {"passes": pass_units, "structures": structure_units}

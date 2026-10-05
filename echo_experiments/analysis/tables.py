@@ -3,27 +3,30 @@ Results tables in three renderings from one computed frame: CSV (raw
 numbers, for anything downstream), Markdown (notes / PR descriptions), and
 LaTeX booktabs (paste into the paper; needs \\usepackage{booktabs}).
 
-Main table cell: mean +- SEM over structures; best per
+Main table cell: mean +- SEM (over passes or structures, see compute); best per
 column in bold (only for metrics with a direction); a dagger where the
 paired difference vs the reference survives Holm correction at alpha=0.05.
 """
 import numpy as np
 import pandas as pd
 
-from .load import structure_units
+from .load import SEM_UNITS, structure_units
 from .stats import ALPHA, holm, paired_diff, sem
 
 
-def compute(df, conditions, metrics, reference=None):
-    """Long frame, one row per (condition, metric): estimate + paired test vs reference."""
+def compute(df, conditions, metrics, reference=None, sem_over="passes"):
+    """Long frame, one row per (condition, metric): estimate + paired test vs reference.
+    sem_over: "passes" (SEM across full passes over the eval set) or "structures"; paired tests
+    always pair on structures."""
     rows = []
     for cond in conditions:
         tests = []
         for metric in metrics:
             units = structure_units(df, cond.label, metric.key)
-            est = sem(units.to_numpy())
+            spread = sem(SEM_UNITS[sem_over](df, cond.label, metric.key).to_numpy())
             row = {"condition": cond.display, "label": cond.label, "metric": metric.key,
-                   "mean": est.mean, "sem": est.sem, "n_structures": est.n,
+                   "mean": float(units.mean()) if len(units) else np.nan, "sem": spread.sem,
+                   "sem_over": sem_over, "n_sem_units": spread.n, "n_structures": len(units),
                    "n_episodes": int((df["label"] == cond.label).sum())}
             if reference is not None and cond.label != reference.label:
                 pdiff = paired_diff(units, structure_units(df, reference.label, metric.key))
@@ -35,7 +38,17 @@ def compute(df, conditions, metrics, reference=None):
             adj = holm([rows[i]["p"] for i in tests])
             for i, a in zip(tests, adj):
                 rows[i]["p_holm"] = a
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    out.attrs["sem_over"] = sem_over
+    return out
+
+
+def sem_description(res):
+    n_struct = int(res["n_structures"].max())
+    if res.attrs.get("sem_over") == "passes":
+        k = int(res["n_sem_units"].max())
+        return f"SEM over {k} independent passes over the {n_struct}-structure eval set"
+    return f"SEM over {n_struct} structures (each structure's episodes averaged first)"
 
 
 def _scale(metric, v):
@@ -119,12 +132,11 @@ def main_latex(res, conditions, metrics, reference=None, caption=None):
             sup = r"^{\dagger}" if _significant(r) else ""
             cells.append(f"${v}{sub}{sup}$")
         lines.append(f"{cond.display} & " + " & ".join(cells) + r" \\")
-    n = int(res["n_structures"].max())
     ref_note = (f" $^\\dagger$: paired sign-flip test vs {reference.display}, Holm-corrected, $p<{ALPHA}$."
                 if reference is not None else "")
     lines += [r"\bottomrule", r"\end{tabular}",
               rf"\caption{{{caption or 'Full-game evaluation on the held-out benchmark.'} "
-              rf"Mean $\pm$ SEM over {n} structures (each structure's episodes averaged first). "
+              rf"Mean $\pm$ {sem_description(res)}. "
               rf"Best per column in bold.{ref_note}}}",
               r"\label{tab:main_results}", r"\end{table}"]
     return "\n".join(lines)
@@ -137,11 +149,32 @@ def comparison_markdown(res, metrics, reference):
     if sub.empty:
         return ""
     lines = [f"Paired difference vs **{reference.display}** (same structures; Δ = condition − reference)", "",
-             "| Condition | Metric | Δ ± SEM | p | p (Holm) | n |", "|---|---|---:|---:|---:|---:|"]
+             "| Condition | Metric | Δ ± SEM (over structures) | p | p (Holm) | n structures |", "|---|---|---:|---:|---:|---:|"]
     for _, r in sub.iterrows():
         m = by_key[r["metric"]]
         f = lambda v: f"{_scale(m, v):+.{m.decimals}f}"
         diff_sem = f"{_scale(m, r['diff_sem']):.{m.decimals}f}"
         lines.append(f"| {r['condition']} | {m.display}{' (pp)' if m.percent else ''} | {f(r['diff'])} ± {diff_sem} | "
                      f"{_p(r['p'])} | {_p(r['p_holm'])} | {int(r['n_paired'])} |")
+    return "\n".join(lines)
+
+
+def main_figure_latex(panels, sem_desc, fig_path="", legend_file="legend_panels.png", ncols=2):
+    """Figure* with one subfigure per (file, subcaption, label) panel and a shared legend.
+    Needs \\usepackage{graphicx} and \\usepackage{subcaption}."""
+    ncols = min(ncols, len(panels))
+    width = f"{0.98 / ncols:.3f}"
+    lines = [r"\begin{figure*}[t]", r"\centering"]
+    for i, (fname, subcap, label) in enumerate(panels):
+        lines += [rf"\begin{{subfigure}}[t]{{{width}\textwidth}}", r"\centering",
+                  rf"\includegraphics[width=\linewidth]{{{fig_path}{fname}}}",
+                  rf"\caption{{{subcap}}}", rf"\label{{fig:main_results:{label}}}", r"\end{subfigure}"]
+        if i < len(panels) - 1:
+            lines.append(r"\hfill" if (i + 1) % ncols else r"\par\medskip")
+    lines += [r"\par\medskip",
+              rf"\includegraphics[width=0.85\textwidth]{{{fig_path}{legend_file}}}",
+              rf"\caption{{Full-game evaluation on the held-out benchmark. Bars: mean $\pm$ {sem_desc}, "
+              r"sorted by value; Qwen2.5-7B + ECHO outlined. Curve: cumulative progress gained per turn, "
+              r"shaded $\pm$ SEM; episodes that finish early hold their final value.}",
+              r"\label{fig:main_results}", r"\end{figure*}"]
     return "\n".join(lines)

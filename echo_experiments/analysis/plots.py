@@ -45,7 +45,10 @@ def _legend_below(ax, conditions, kind="bar", ncol=2):
               bbox_to_anchor=(0.5, -0.08 if kind == "bar" else -0.2), ncol=ncol, handletextpad=0.5)
 
 
-def metric_bar(df, conditions, metric, reference, res):
+PANEL_SIZE = (4.6, 3.4)
+
+
+def metric_bar(df, conditions, metric, reference, res, panel=False):
     """One bar per condition: mean with +-SEM error bars and the value labeled."""
     rows = res[res["metric"] == metric.key].set_index("label")
     conds = [c for c in conditions if c.label in rows.index and not np.isnan(rows.loc[c.label, "mean"])]
@@ -53,12 +56,15 @@ def metric_bar(df, conditions, metric, reference, res):
         return None
     conds.sort(key=lambda c: -rows.loc[c.label, "mean"])
     n = len(conds)
-    fig, ax = plt.subplots(figsize=(max(3.6, 0.42 * n + 1.4), 3.4))
+    fig, ax = plt.subplots(figsize=PANEL_SIZE if panel else (max(3.6, 0.42 * n + 1.4), 3.4))
     xs = np.arange(n)
     scale = 100 if metric.percent else 1
     means = np.array([rows.loc[c.label, "mean"] for c in conds]) * scale
     sems = np.array([rows.loc[c.label, "sem"] for c in conds]) * scale
     los, his = means - sems, means + sems
+    if metric.bounds:
+        los = np.maximum(los, metric.bounds[0] * scale)
+        his = np.minimum(his, metric.bounds[1] * scale)
 
     for x, c, m in zip(xs, conds, means):
         ax.bar(x, m, width=BAR_W, color=c.color, zorder=2, **(OURS_EDGE if c.is_ours else {}))
@@ -89,20 +95,20 @@ def metric_bar(df, conditions, metric, reference, res):
     ax.set_xticks([])
     ax.set_xlim(-0.6, n - 0.4)
     ax.set_ylabel(_y_label(metric))
-    ax.set_title(metric.display)
-    _legend_below(ax, conds, "bar")
+    if not panel:
+        ax.set_title(metric.display)
+        _legend_below(ax, conds, "bar")
     return fig
 
 
-def _curves(df, label, gain):
-    """(n_structures, T+1) per-structure mean progress curve for one
-    condition. Episodes that finished early hold their last value."""
+def _curves(df, label, gain, group="structure_idx"):
+    """(n_groups, T+1) mean progress curve per group (structure or pass) for one condition."""
     sub = df[df["label"] == label]
     if "progress_curve" not in sub or sub["progress_curve"].isna().all():
         return None, None
     T = max(len(c) for c in sub["progress_curve"]) - 1
     per_structure = []
-    for _, g in sub.groupby("structure_idx"):
+    for _, g in sub.groupby(group):
         eps = []
         for curve in g["progress_curve"]:
             c = np.array([np.nan if v is None else v for v in curve], dtype=float)
@@ -112,12 +118,13 @@ def _curves(df, label, gain):
     return np.array(per_structure), np.arange(T + 1)
 
 
-def progress_curve(df, conditions, metric, reference, res, gain=True):
-    """Cumulative progress vs turn, one line per condition with a +-SEM band over structures."""
-    fig, ax = plt.subplots(figsize=(4.6, 3.4))
+def progress_curve(df, conditions, metric, reference, res, gain=True, panel=False):
+    """Cumulative progress vs turn, one line per condition with a +-SEM band (passes or structures, per res)."""
+    fig, ax = plt.subplots(figsize=PANEL_SIZE)
     drawn, last_turn = [], 0
     for c in conditions:
-        curves, turns = _curves(df, c.label, gain)
+        group = "rep" if res.attrs.get("sem_over") == "passes" else "structure_idx"
+        curves, turns = _curves(df, c.label, gain, group)
         if curves is None:
             continue
         est = [sem(curves[:, t]) for t in range(curves.shape[1])]
@@ -131,13 +138,15 @@ def progress_curve(df, conditions, metric, reference, res, gain=True):
         return None
     ax.set_xlabel("Turn")
     ax.set_ylabel(("Cumulative progress (%)" if gain else "Structure progress (%)") + " ↑")
-    ax.set_title("Cumulative progress")
+    if not panel:
+        ax.set_title("Cumulative progress")
     ax.xaxis.set_major_locator(MaxNLocator(nbins=6, integer=True))
     ax.set_xlim(0, last_turn)
     if gain:
         ax.set_ylim(bottom=0)
     ax.grid(axis="both")
-    _legend_below(ax, drawn, "line")
+    if not panel:
+        _legend_below(ax, drawn, "line")
     return fig
 
 

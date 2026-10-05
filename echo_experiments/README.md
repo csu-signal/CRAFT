@@ -162,6 +162,10 @@ Options:
 | `--metrics` | all non-diagnostic | one bar chart per metric |
 | `--table_metrics` | all non-diagnostic | table columns; name a diagnostic metric (`reward_mean`, `director_failure_rate`, `completion_tokens_mean`) to add it back |
 | `--figures` | `bar progress_curve` | which figure types to draw |
+| `--figure_panels` | `final_progress completed episode_length progress_curve` | subfigures of `results_figure.tex` (metric keys and/or `progress_curve`) |
+| `--figure_cols` | `2` | subfigures per row |
+| `--tex_fig_path` | empty | prefix for the `\includegraphics` paths, e.g. `figures/` |
+| `--sem_over` | `passes` | `passes` or `structures`: what the ± and error bars are computed over |
 
 Outputs in `--out`:
 
@@ -170,6 +174,8 @@ Outputs in `--out`:
 | `bar_<metric>.png` | one bar per condition (mean ± SEM), value above each bar, arrow on the y-axis for which direction is better, legend below; ECHO outlined in black |
 | `progress_curve.png` | cumulative progress vs turn, one line per condition with a ± SEM band |
 | `legend_bar.png`, `legend_line.png` | the legend alone, for assembling multi-panel figures |
+| `results_figure.tex` | a `figure*` of subfigures (default 2×2: final progress, completion, episode length, progress curve) with a shared legend; needs `\usepackage{graphicx,subcaption}` |
+| `panel_<name>.png`, `legend_panels.png` | the title- and legend-free panels and the shared legend that `results_figure.tex` includes |
 | `results.md` | main table (mean ± SEM, best per column in bold) and paired differences vs `--reference` |
 | `results.tex` | the main table as a booktabs LaTeX table (`\usepackage{booktabs}`) |
 | `results.csv` | every estimate, SEM and paired test as raw numbers |
@@ -185,13 +191,15 @@ together, and warns when they're comparable but set up differently:
 * **Warning:** runs differ in director model, `oracle_n`, `max_turns`,
   number of structures, episodes per structure or starting-board mode.
 
-**Statistics.** Structures are the unit of analysis. Each structure's
-episodes are averaged first, so 20 structures × 3 episodes gives n = 20, not
-60. Tables and error bars show mean ± SEM (SD / √n over the structure
-means), which is roughly a 68% interval, not 95%. Comparisons against
-`--reference` are paired on the structures both conditions ran: Δ ± SEM of
-the per-structure differences, with a sign-flip permutation test,
-Holm-corrected across metrics (the † in the tables).
+**Statistics.** Each structure's episodes are averaged first. With
+`--sem_over passes` (default), the ± in tables and the error bars are the SEM
+across full passes over the eval set (pass k = episode k of every structure),
+matching an "independent runs" convention: 3 episodes per structure give 3
+passes. `--sem_over structures` uses the SEM across the 20 structure means
+instead, which also reflects which structures are in the benchmark and is
+much wider. Significance (the † and the paired-difference table) always
+pairs conditions on the same structures: Δ ± SEM over structures, a
+sign-flip permutation test, Holm-corrected across metrics.
 
 **Names, colours and order** come from the eval label and the run's model:
 `echo`, `rloo`, `grpo`, `cot_*`, `base_*` (e.g. "Qwen2.5-72B 4-bit

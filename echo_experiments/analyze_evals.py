@@ -23,7 +23,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 from analysis.load import load_results
-from analysis.plots import FIGURES, PER_METRIC, legend_only
+from analysis.plots import FIGURES, PER_METRIC, legend_only, metric_bar, progress_curve
 from analysis.registry import METRICS, METRICS_BY_KEY
 from analysis.style import save, use_paper_style
 from analysis import tables
@@ -42,6 +42,16 @@ def main():
                         help="table columns (default: all non-diagnostic metrics; pass e.g. director_failure_rate to add one back)")
     parser.add_argument("--figures", nargs="*", default=list(FIGURES), choices=list(FIGURES))
     parser.add_argument("--formats", nargs="*", default=["png"])
+    parser.add_argument("--figure_panels", nargs="*",
+                        default=["final_progress", "completed", "episode_length", "progress_curve"],
+                        help="subfigures of results_figure.tex: metric keys and/or progress_curve")
+    parser.add_argument("--figure_cols", type=int, default=2,
+                        help="subfigures per row in results_figure.tex (2 keeps panel text legible at full width)")
+    parser.add_argument("--tex_fig_path", default="",
+                        help="prefix for \\includegraphics paths in results_figure.tex (e.g. figures/)")
+    parser.add_argument("--sem_over", default="passes", choices=["passes", "structures"],
+                        help="error bars / ± in tables: SEM across full passes over the eval set, or across "
+                             "structures; significance tests always pair on structures")
     args = parser.parse_args()
 
     use_paper_style()
@@ -58,7 +68,7 @@ def main():
           + ", ".join(f"{c.label} (n={int((df['label'] == c.label).sum())})" for c in conditions))
 
     all_metrics = list({m.key: m for m in fig_metrics + table_metrics}.values())
-    res = tables.compute(df, conditions, all_metrics, reference)
+    res = tables.compute(df, conditions, all_metrics, reference, sem_over=args.sem_over)
     jobs = [(name, m) for name in args.figures for m in (fig_metrics if name in PER_METRIC else [None])]
     for name, metric in jobs:
         fname = f"{name}_{metric.key}" if metric else name
@@ -74,11 +84,30 @@ def main():
         save(fig, out, f"legend_{kind}", args.formats)
         plt.close(fig)
 
+    panels = []
+    for key in args.figure_panels:
+        if key == "progress_curve":
+            fig = progress_curve(df, conditions, None, reference, res, panel=True)
+            subcap = r"Cumulative progress (\%) $\uparrow$"
+        else:
+            m = METRICS_BY_KEY[key]
+            fig = metric_bar(df, conditions, m, reference, res, panel=True)
+            arrow = {True: r" $\uparrow$", False: r" $\downarrow$", None: ""}[m.higher_is_better]
+            subcap = f"{m.display}{' (\\%)' if m.percent else ''}{arrow}"
+        if fig is None:
+            print(f"[analysis] skipped panel {key} (no data)")
+            continue
+        save(fig, out, f"panel_{key}", ["png"])
+        plt.close(fig)
+        panels.append((f"panel_{key}.png", subcap, key))
+    fig = legend_only(conditions, "bar", ncol=5)
+    save(fig, out, "legend_panels", ["png"])
+    plt.close(fig)
+
     res = res[res["metric"].isin([m.key for m in table_metrics])]
     res.to_csv(out / "results.csv", index=False)
     md = tables.main_markdown(res, conditions, table_metrics)
-    n_struct = int(res["n_structures"].max())
-    md += (f"\n\nCells: mean ± SEM over {n_struct} structures (each structure's episodes averaged first). "
+    md += (f"\n\nCells: mean ± {tables.sem_description(res)}. "
            f"**Bold**: best in the column (metrics with a direction only).")
     if reference is not None:
         md += (f" †: differs from {reference.display} (paired sign-flip test on the same structures, "
@@ -87,6 +116,11 @@ def main():
         md += "\n\n" + tables.comparison_markdown(res, table_metrics, reference)
     (out / "results.md").write_text(md + "\n")
     (out / "results.tex").write_text(tables.main_latex(res, conditions, table_metrics, reference) + "\n")
+    if panels:
+        (out / "results_figure.tex").write_text(
+            tables.main_figure_latex(panels, tables.sem_description(res), args.tex_fig_path,
+                                     ncols=args.figure_cols) + "\n")
+        print(f"  wrote {out / 'results_figure.tex'} ({len(panels)} panels)")
     print(f"  wrote {out / 'results.csv'}, {out / 'results.md'}, {out / 'results.tex'}\n")
     print(md)
 
