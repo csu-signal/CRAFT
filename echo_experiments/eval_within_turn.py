@@ -1,20 +1,14 @@
 """
-Within-turn evaluation.
+Within-turn evaluation on the frozen pool from build_eval_pool.py.
 
-Loads a checkpoint, samples G completions per frozen turn in the eval pool
-(build_eval_pool.py), and reports the four metrics from the within-turn
-experiment design: best-candidate rate, regret, compliance rate, and
-P(CLARIFY). No environment stepping -- every candidate's overall_progress
-was already computed by enumerate_correct_actions when the pool was built,
-so scoring is just comparing the parsed move against that list.
+Reports best-candidate rate, regret, compliance rate, and clarify rate.
 
     python eval_within_turn.py --checkpoint craft_echo_runs/.../final_model --label echo
     python eval_within_turn.py --checkpoint craft_echo_runs/.../final_model --label episode_return
     python eval_within_turn.py --checkpoint craft_echo_runs/.../final_model --label rloo_per_turn
     python eval_within_turn.py --base_model Qwen/Qwen2.5-1.5B-Instruct --label base   # zero-shot, no checkpoint
 
-Run once per condition (with a different --checkpoint/--label each time);
-each run appends one row to --out_csv, building up the reporting table.
+Each run appends one row to --out_csv.
 """
 import argparse
 import csv
@@ -35,8 +29,7 @@ from agents.builder_agent import BuilderAgent
 
 from build_eval_pool import DEFAULT_POOL_PATH
 
-# Reused only for its pure prompt/parse helpers -- see rollout.py's module
-# docstring for why a dummy key is passed.
+# used only for prompt building and parsing
 _BUILDER_HELPER = BuilderAgent(api_key="unused-local-generation-only")
 
 
@@ -48,10 +41,6 @@ def load_pool(path=DEFAULT_POOL_PATH):
 def load_policy(base_model_name, checkpoint=None, device="cuda:0"):
     tokenizer = AutoTokenizer.from_pretrained(checkpoint or base_model_name)
     tokenizer.pad_token = tokenizer.eos_token
-    # Real builder prompts run ~2700-2800 tokens (see train.py's matching
-    # note) -- truncate from the left so a too-small max_length below drops
-    # older static reference material rather than the live board state /
-    # discussion / oracle candidates at the end of the prompt.
     tokenizer.truncation_side = "left"
     model = AutoModelForCausalLM.from_pretrained(base_model_name, torch_dtype=torch.bfloat16).to(device)
     if checkpoint:
@@ -77,9 +66,7 @@ def sample_completions(model, tokenizer, prompt_text, n_samples, max_new_tokens,
 
 
 def _match_candidate(move, oracle_candidates):
-    """oracle_candidates: full entries (from build_eval_pool.py), each with a
-    "move" sub-dict and "overall_progress". Returns the matching full entry,
-    or None if the parsed move doesn't match any candidate."""
+    """Matching oracle entry for the move, or None."""
     for c in oracle_candidates:
         m = c["move"]
         if (move.get("action") == m["action"]
@@ -97,11 +84,11 @@ def evaluate(model, tokenizer, pool, n_samples=8, max_new_tokens=150, temperatur
     regrets = []
 
     for turn_state in pool:
-        oracle_candidates = turn_state["oracle_moves"]  # full entries, with overall_progress
+        oracle_candidates = turn_state["oracle_moves"]
         if not oracle_candidates:
             continue
         best_progress = max(c["overall_progress"] for c in oracle_candidates)
-        oracle_moves = [c["move"] for c in oracle_candidates]  # plain move dicts, for the prompt
+        oracle_moves = [c["move"] for c in oracle_candidates]
 
         prompt_text = _BUILDER_HELPER.create_builder_prompt(
             director_discussion=turn_state["director_discussion"],
@@ -123,12 +110,12 @@ def evaluate(model, tokenizer, pool, n_samples=8, max_new_tokens=150, temperatur
                 clarification = move.get("clarification", "") or ""
                 is_parse_failure = clarification.startswith(("Could not parse", "Parse error"))
                 if not is_parse_failure:
-                    n_compliant += 1  # a genuine CLARIFY is compliant, just has no candidate match
+                    n_compliant += 1
                 continue
 
             matched = _match_candidate(move, oracle_candidates)
             if matched is None:
-                continue  # off-list -- non-compliant, no regret contribution
+                continue
 
             n_compliant += 1
             regrets.append(best_progress - matched["overall_progress"])

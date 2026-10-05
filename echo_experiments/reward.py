@@ -20,22 +20,13 @@ def compute_builder_reward(
     negative_progress_weight=1.0,
 ):
     """
-    move_dict: parsed builder output (agents.builder_agent.BuilderAgent.parse_builder_response)
-    progress_delta: EnhancedGameState.execute_move's progress_data["progress_delta"]
-        (0.0 when the move failed or wasn't executed, e.g. CLARIFY)
-    matched_oracle: True/False if the move was place/remove, None if CLARIFY
-        (see rollout._oracle_match)
-    completed: EnhancedGameState.execute_move's overallState return value
-    turns_remaining_at_completion: max_turns - (turn + 1), only meaningful if completed
-    parse_failure: True if parse_builder_response fell back to its
-        "Could not parse response" / "Parse error" path
-    move_invalid: True if a parsed place/remove failed EnhancedGameState.execute_move's
-        own validation (rollout.py's `success` flag) .
-    clarify_penalty: flat reward for a CLARIFY.
-    invalid_move_penalty: flat reward for a place/remove that broke the game's
-        own rules
-    positive_progress_weight / negative_progress_weight: scaling applied to
-        progress_delta before summing with completion/efficiency bonuses.
+    move_dict: parsed builder output
+    progress_delta: 0.0 when the move failed or wasn't executed
+    matched_oracle: None for CLARIFY
+    completed: whether the structure is complete after this move
+    turns_remaining_at_completion: only used if completed
+    parse_failure: builder output couldn't be parsed
+    move_invalid: parsed place/remove failed game validation
     """
     reward_info = {
         "action": move_dict.get("action"),
@@ -90,8 +81,4 @@ class BuilderRewardFunction:
         self.last_reward_infos = []
 
     def __call__(self, prompts, completions, **kwargs):
-        raise NotImplementedError(
-            "BuilderRewardFunction is not called through TRL's reward_funcs "
-            "CRAFTEchoTrainer computes rewards inline per turn "
-            "via compute_builder_reward."
-        )
+        raise NotImplementedError("CRAFTEchoTrainer computes rewards per turn via compute_builder_reward")

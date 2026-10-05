@@ -1,15 +1,9 @@
 """
-Paper figures, styled to match the paper's existing ones. Each figure
-function takes (df, conditions, metric, reference, res) -- `res` is
-tables.compute()'s frame, so figures and tables show the same numbers --
-and returns a Figure, or None when the data can't support it.
+Figures. Each takes (df, conditions, metric, reference, res), where `res` is
+tables.compute()'s frame, and returns a Figure or None if there's no data.
 
   * PER_METRIC figures are drawn once per metric -> <name>_<metric>.png
   * SINGLE figures are drawn once -> <name>.png (metric is None)
-
-Every figure identifies conditions through a legend (colour = model, ECHO
-outlined as ours), and legend.png holds the same legend on its own for
-assembling multi-panel figures.
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -52,13 +46,11 @@ def _legend_below(ax, conditions, kind="bar", ncol=2):
 
 
 def metric_bar(df, conditions, metric, reference, res):
-    """One colour-coded bar per condition: mean with +-SEM error bars and
-    the value above each bar, like the paper's 'Task resolution' panel."""
+    """One bar per condition: mean with +-SEM error bars and the value labeled."""
     rows = res[res["metric"] == metric.key].set_index("label")
     conds = [c for c in conditions if c.label in rows.index and not np.isnan(rows.loc[c.label, "mean"])]
     if not conds:
         return None
-    # tallest bar first (stable, so ties keep the registry order); the legend follows the bars
     conds.sort(key=lambda c: -rows.loc[c.label, "mean"])
     n = len(conds)
     fig, ax = plt.subplots(figsize=(max(3.6, 0.42 * n + 1.4), 3.4))
@@ -87,7 +79,6 @@ def metric_bar(df, conditions, metric, reference, res):
             ax.text(x, max(top, 0) + 0.02 * span, _value_text(metric, m / scale),
                     ha="center", va="bottom", fontsize=9.5)
 
-    # like the paper, the axis follows the data (not the metric's full 0-100%) plus label headroom
     ax.set_ylim(data_lo - (0.14 * span if data_lo < 0 else 0), data_hi + 0.14 * span)
     ax.yaxis.set_major_locator(MaxNLocator(nbins=5, steps=[1, 2, 2.5, 5, 10]))
     if metric.bounds:
@@ -122,8 +113,7 @@ def _curves(df, label, gain):
 
 
 def progress_curve(df, conditions, metric, reference, res, gain=True):
-    """Cumulative progress vs turn, one line per condition with a +-SEM
-    band over structures -- like the paper's per-turn line panels."""
+    """Cumulative progress vs turn, one line per condition with a +-SEM band over structures."""
     fig, ax = plt.subplots(figsize=(4.6, 3.4))
     drawn, last_turn = [], 0
     for c in conditions:

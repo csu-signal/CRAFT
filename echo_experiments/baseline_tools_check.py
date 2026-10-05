@@ -1,22 +1,7 @@
 """
-Does the builder's simulate_move tool (agents/builder_tools.py, wired up via
-BuilderAgent.generate_move_with_tools) meaningfully cut the invalid_move_rate
-that's dominated every baseline_sanity_check.py run so far?
+Baseline check with the builder's simulate_move tool enabled (BuilderAgent.generate_move_with_tools).
 
-simulate_move dry-runs a proposed move against a *copy* of the board and
-returns a specific hint on failure ("Count stack height...", "Neither
-position nor span_to can be (1,1) or (2,1)...") -- exactly the failure
-categories (wrong layer, invisible-cell spans) that showed up as the
-dominant invalid-move causes for both Qwen and GPT-4o-mini this week. This
-script runs the same harness (same frozen directors, same reward code, same
-game engine) as baseline_sanity_check.py, but drives the builder through
-BuilderAgent.generate_move_with_tools instead of a single-shot generate_fn,
-since the tool loop needs the live game_state object (to dry-run against)
-rather than just a prompt string.
-
-Only meaningful for an API builder -- generate_move_with_tools is built on
-OpenAI's native function-calling API and has no local-model equivalent, so
-this is not something the trainable Qwen policy can use as-is.
+API builders only: the tool loop uses OpenAI function calling.
 
 Usage:
     python baseline_tools_check.py --director_mode api --director_model gpt-4.1-mini --report_to wandb
@@ -276,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_simulations", type=int, default=3, help="simulate_move calls allowed per turn")
     parser.add_argument("--oracle_n", type=int, default=20)
     parser.add_argument("--max_turns", type=int, default=20)
-    parser.add_argument("--n_structures", type=int, default=15, help="smaller than baseline_sanity_check's 30 -- each turn can cost up to max_simulations+1 API calls now")
+    parser.add_argument("--n_structures", type=int, default=15, help="each turn costs up to max_simulations+1 API calls")
     parser.add_argument("--episodes_per_structure", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train_pool", type=str, default=None)

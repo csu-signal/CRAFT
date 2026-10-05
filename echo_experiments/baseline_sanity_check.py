@@ -1,11 +1,5 @@
 """
-Full-game evaluation of an API builder (OpenAI, Gemini or Anthropic) under
-exactly the protocol eval_full_game.py uses for local models -- same
-eval_harness.run_eval, same rollout, directors, prompts, parsing, scoring and
-result files -- so API baselines sit in the same table as the checkpoints.
-
-(Originally a harness sanity check: if a strong API builder also stalls
-under this harness, the bug is in the shared code, not the policy.)
+Full-game evaluation of an API builder (OpenAI, Gemini or Anthropic).
 
 Usage (run from echo_experiments/):
     python baseline_sanity_check.py --label api_gpt-4o-mini --builder_model gpt-4o-mini --episodes_per_structure 5
@@ -37,12 +31,14 @@ def main():
     g = parser.add_argument_group("API builder")
     g.add_argument("--builder_model", type=str, default="gpt-4o-mini")
     g.add_argument("--temperature", type=float, default=0.1,
-                   help="0.1 matches BuilderAgent.generate_move (run_craft.py's production builder); "
-                        "reasoning models that refuse it fall back to the provider default, recorded in the results")
+                   help="falls back to the provider default if the model refuses it")
     g.add_argument("--builder_max_tokens", type=int, default=None,
                    help="output budget incl. hidden reasoning; default 250 (1024 with cot), 8192 for reasoning models")
     g.add_argument("--reasoning_effort", type=str, default=None,
-                   help="passed through for models that support it (e.g. low/medium/high)")
+                   help="passed through for models that support it (e.g. low/medium/high); "
+                        "Anthropic: output_config.effort")
+    g.add_argument("--thinking", type=str, default=None, choices=["disabled", "adaptive"],
+                   help="Anthropic only; default is the model's own default (e.g. adaptive on Sonnet 5)")
     args = parser.parse_args()
 
     max_tokens = args.builder_max_tokens or default_max_tokens(args.builder_model, args.prompt_style)
@@ -53,11 +49,13 @@ def main():
         args.builder_model,
         system_prompt_fn=lambda oracle_shown: builder_system_prompt(oracle_shown, args.prompt_style),
         max_tokens=max_tokens, temperature=args.temperature, reasoning_effort=args.reasoning_effort,
+        thinking=args.thinking,
     )
     config = {
         "builder_kind": "api", "builder_model": args.builder_model, "provider": provider_for(args.builder_model),
         "temperature": args.temperature, "max_tokens": max_tokens, "reasoning_effort": args.reasoning_effort,
-        "api_stats": stats,  # filled in during the run: length stops, empty answers, temperature refusals
+        "thinking": args.thinking,
+        "api_stats": stats,
     }
     run_eval(args, generate_fn, config)
     print(f"[api-builder] {stats}")

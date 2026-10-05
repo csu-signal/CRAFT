@@ -24,8 +24,6 @@ FULL_W = 6.75   # full text width
 
 
 def use_paper_style():
-    """Matches the paper's existing figures: matplotlib's DejaVu Sans, bold
-    centred titles, left/bottom spines only, faint horizontal grid."""
     mpl.rcParams.update(mpl.rcParamsDefault)
     mpl.rcParams.update({
         "font.family": "DejaVu Sans",

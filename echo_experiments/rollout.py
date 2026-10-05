@@ -1,13 +1,4 @@
-"""
-Shared multi-turn rollout logic for CRAFT-ECHO experiments.
-
-Runs one live episode of the actual CRAFT game -- 3 frozen director turns
-plus one trainable builder turn per turn, repeated until the structure is
-complete or a turn cap is hit -- and returns per-turn (prompt, completion,
-reward) lists in the flat shape CRAFTEchoTrainer / advantages.py's
-compute_multiturn_advantages expects. 
-    
-"""
+"""Multi-turn CRAFT episode rollout: three frozen directors and one builder per turn."""
 import concurrent.futures
 import copy
 import random
@@ -25,7 +16,7 @@ from agents.oracle import enumerate_correct_actions, FLAG_OK
 
 from reward import compute_builder_reward
 
-# dummy key to initialize local builder
+# used only for prompt building and parsing
 _BUILDER_HELPER = BuilderAgent(api_key="unused-local-generation-only")
 
 
@@ -33,13 +24,7 @@ def build_frozen_directors(
     structure_index, run_id, director_model_name="gpt-4.1-mini", api_key=None,
     director_mode="api", shared_director_model=None, shared_director_tokenizer=None,
 ):
-    """Three DirectorAgents, one per role -- never trained, only called under
-    torch.no_grad() from the rollout loop (see trainer.py's generate_fn).
-
-    director_mode="local" reuses one shared local model/tokenizer (loaded once
-    by train.py) across all three roles instead of making OpenAI API calls --
-    see agents/director_agent.py's _generate_with_local_model and
-    local_model_utils.load_local_director_pipeline."""
+    """D1-D3 director agents. director_mode="local" shares one local model across all three."""
     use_api = director_mode != "local"
     return {
         did: DirectorAgent(
@@ -65,14 +50,7 @@ def director_discussion_text(director_responses):
 
 
 def sample_oracle_candidates(game_state, n=5, rng=None):
-    """
-    Same sampling behavior as agents.environment.get_oracle_moves, but keeps
-    each candidate's full entry (overall_progress, flag, source) instead of
-    stripping down to just the move dict. get_oracle_moves discards
-    overall_progress, which the within-turn eval needs for scoring; the live
-    training rollout below doesn't need it and just uses get_oracle_moves
-    directly.
-    """
+    """Like get_oracle_moves, but returns full oracle entries (including overall_progress)."""
     all_correct = enumerate_correct_actions(game_state)
     ok_entries = [e for e in all_correct if e["flag"] == FLAG_OK]
     if rng is not None and len(ok_entries) > n:
@@ -83,15 +61,11 @@ def sample_oracle_candidates(game_state, n=5, rng=None):
 
 
 def candidate_moves_only(candidates):
-    """Full oracle entries (with overall_progress) -> plain move dicts, the
-    shape BuilderAgent.create_builder_prompt/format_oracle_moves_for_prompt
-    expects."""
     return [c["move"] for c in candidates]
 
 
 def _oracle_match(move_dict, oracle_moves):
-    """Same check run_craft.py logs as builder_followed_oracle. Returns None
-    for CLARIFY (not applicable), True/False for place/remove."""
+    """Matches on action/position/layer only. None for CLARIFY."""
     if move_dict.get("action") not in ("place", "remove"):
         return None
     if not oracle_moves:
@@ -108,8 +82,7 @@ _COMMAND_PREFIXES = ("PLACE:", "REMOVE:", "CLARIFY:")
 
 
 def _cells(move):
-    """Unordered cell set a move covers -- a large block written as
-    (1,0)->(0,0) is the same placement as (0,0)->(1,0)."""
+    """Unordered set of cells a move covers, so span direction doesn't matter."""
     return frozenset(c for c in (move.get("position"), move.get("span_to")) if c)
 
 
@@ -123,20 +96,14 @@ def _same_move(a, b):
 
 
 def _strict_match(move_dict, moves):
-    """Like _oracle_match but also requires the right block and span.
-    _oracle_match only compares action/position/layer, so e.g. a red small
-    block where a blue large one was expected still counts as a match --
-    it stays as-is because the training reward depends on it; eval metrics
-    use this instead."""
+    """Like _oracle_match but also requires the same block and span."""
     if move_dict.get("action") not in ("place", "remove"):
         return None
     return any(_same_move(move_dict, m) for m in moves)
 
 
 def seeded_part_type(seed):
-    """Deterministic starting board for an eval episode, so every condition
-    sees the same start for a given (structure, episode). run_craft.py does
-    the same for the main benchmark via get_part_type_for_structure."""
+    """Deterministic starting board for an eval episode."""
     return random.Random(seed).choice(EnhancedGameState.PARTIAL_OPTIONS)
 
 
@@ -148,10 +115,9 @@ def _director_failed(response):
 
 
 def _call_director(agent, **kwargs):
-    """DirectorAgent.generate_response swallows API errors and returns a
-    placeholder message ("I need a moment to analyze the situation.") -- which
-    would silently hand the builder a director with nothing to say. Retry
-    with backoff; report whether it ultimately failed so it can be counted."""
+    """Retry with backoff, since generate_response hides API errors behind a placeholder message.
+
+    Returns (response, retries, failed)."""
     import time
     for attempt in range(DIRECTOR_RETRIES + 1):
         response = agent.generate_response(**kwargs)
@@ -165,16 +131,9 @@ def _call_director(agent, **kwargs):
 
 
 def _extract_command_line(decoded_text, pick="first"):
-    """The builder prompt tells the model to think step by step before
-    committing to a move, so the PLACE:/REMOVE:/CLARIFY: line often isn't
-    the first line of the completion -- scan every line for one that starts
-    with a known prefix instead of assuming line 1 is the command, which
-    was sending every turn with any leading reasoning straight to
-    parse_builder_response's fallback (disguised as a CLARIFY parse
-    failure). Falls back to the old first-line behavior so a genuinely
-    unparseable completion still surfaces as a parse failure."""
-    # pick="last" is for chain-of-thought prompting: reasoning may quote
-    # candidate moves ("PLACE:gs:(0,0)...") before the final answer line.
+    """First (or last) line starting with PLACE:/REMOVE:/CLARIFY:, else the first line.
+
+    Use pick="last" for chain-of-thought output, where reasoning may quote moves before the answer."""
     lines = decoded_text.split("\n")
     for line in (reversed(lines) if pick == "last" else lines):
         stripped = line.strip().strip("[]").strip("`* ")
@@ -184,8 +143,7 @@ def _extract_command_line(decoded_text, pick="first"):
 
 
 def _is_parse_failure(move_dict):
-    """parse_builder_response's own fallback disguises unparseable output as
-    action == 'clarify' -- distinguish that from a genuine clarification."""
+    """parse_builder_response returns unparseable output as a clarify; detect that case."""
     if move_dict.get("action") != "clarify":
         return False
     text = move_dict.get("clarification", "") or ""
@@ -210,34 +168,21 @@ def run_builder_episode(
     command_pick="first",
     retry_directors=False,
 ):
-    """
-    Runs one live episode.
+    """Run one episode.
 
-    generate_fn(prompt_text, oracle_moves) -> (input_ids, new_tokens, decoded_text)
-        is the only model-dependent piece: input_ids/new_tokens are 1D CPU
-        long tensors (prompt tokens, completion tokens), decoded_text is the
-        detokenized completion. oracle_moves (this turn's candidate list, same
-        object passed to create_builder_prompt above) is handed back so
-        generate_fn can pick agents.builder_agent's BUILDER_SYSTEM_PROMPT_ORACLE
-        vs BUILDER_SYSTEM_PROMPT_BASE exactly the way BuilderAgent.generate_move
-        does -- keeping every caller's system-prompt choice consistent with
-        run_craft.py's own builder rather than each reinventing one. CRAFTEchoTrainer
-        supplies a generate_fn that calls the trainable policy under
-        unwrap_model_for_generation.
+    generate_fn(prompt_text, oracle_moves) -> (input_ids, new_tokens, decoded_text), where
+    input_ids/new_tokens are 1D CPU tensors. oracle_moves is passed so generate_fn can pick
+    the matching system prompt.
 
-    Eval-only options (defaults reproduce training behaviour exactly):
-        part_type: fixed starting board (see seeded_part_type) instead of
-            EnhancedGameState's unseeded random pick.
-        oracle_in_prompt: False samples the oracle candidates exactly as
-            usual (same RNG stream, so director order etc. is unchanged) but
-            hides them from the builder -- the no-oracle ablation.
+    Eval-only options:
+        part_type: fixed starting board (see seeded_part_type).
+        oracle_in_prompt: False still samples oracle candidates (keeping the RNG stream
+            unchanged) but hides them from the builder.
         command_pick: "last" for chain-of-thought outputs.
-        retry_directors: retry director API errors instead of passing the
-            placeholder message on to the builder.
+        retry_directors: retry director API errors.
 
-    Returns a dict with parallel lists (one entry per turn actually taken):
-        prompt_ids, completion_ids, rewards, reward_infos
-    plus episode-level part_type / initial_progress / final_progress.
+    Returns per-turn lists prompt_ids, completion_ids, rewards, reward_infos, plus
+    part_type, initial_progress, final_progress.
     """
     target_structure = structure_data["structure"]
     target_spans = {int(k): v for k, v in structure_data["spans"].items()}
@@ -248,9 +193,7 @@ def run_builder_episode(
         partComplete=True,
         partType=part_type,
     )
-    # The wall starts (D1Wall/D2Wall/D3Wall) assign the target's own lists
-    # into current_structure, so removing a block from a wall cell also
-    # deleted it from the target. Give the board its own copy.
+    # wall starts alias the target's lists into current_structure
     game_state.current_structure = copy.deepcopy(game_state.current_structure)
     tracker = game_state.progress_tracker
     initial_progress = tracker.calculate_progress(game_state.current_structure)["overall_progress"]
@@ -270,7 +213,6 @@ def run_builder_episode(
     for turn in range(max_turns):
         game_state.increment_turn()
 
-        # ---- frozen directors --------------------------------------------
         full_board_state = game_state.get_director_views()
         public_conversation = "\n".join(conversation_history)
         director_order = ["D1", "D2", "D3"]
@@ -284,8 +226,6 @@ def run_builder_episode(
         )
         director_retries, director_failures = 0, 0
         if retry_directors:
-            # same concurrency rule as below (threads only for API directors);
-            # retries happen inside each call
             def call(did):
                 return _call_director(director_agents[did], target_view=target_director_views[did], **director_kwargs)
             if director_mode == "api":
@@ -298,7 +238,6 @@ def run_builder_episode(
                 director_retries += n_retry
                 director_failures += int(failed)
         elif director_mode == "api":
-
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(director_order)) as pool:
                 futures = {
                     did: pool.submit(
@@ -325,14 +264,10 @@ def run_builder_episode(
 
         discussion = director_discussion_text(director_responses)
 
-        # ---- oracle candidates --------------------------------------------
         oracle_moves = get_oracle_moves(game_state, n=oracle_n, rng=rng)
         shown_moves = oracle_moves if oracle_in_prompt else []
-        # every physically valid move that advances the target, for scoring
-        # regardless of what (if anything) the builder was shown
         all_correct = [e["move"] for e in enumerate_correct_actions(game_state) if e["flag"] == FLAG_OK]
 
-        # ---- trainable builder ---------------------------------------------
         prompt_text = _BUILDER_HELPER.create_builder_prompt(
             director_discussion=discussion,
             current_state=game_state.current_structure,
@@ -348,7 +283,6 @@ def run_builder_episode(
         matched_oracle = _oracle_match(move, oracle_moves)
         parse_failure = _is_parse_failure(move)
 
-        # ---- execute ---------------------------------------------------------
         move_invalid = False
         if move.get("action") == "clarify":
             progress_delta, completed = 0.0, False
@@ -359,14 +293,7 @@ def run_builder_episode(
             )
             if success:
                 progress_delta = progress_data["progress_delta"]
-                # overallState ("everything placed SO FAR is correct") is not
-                # completion -- run_craft.py only ever logs it as
-                # overall_structure_correctness and never uses it to end a
-                # game. The real check (also run_craft.py's own) is whether
-                # overall_progress has crossed a real threshold -- a single
-                # correct early block would otherwise satisfy overallState
-                # vacuously (nothing else has been placed to be wrong yet)
-                # and falsely trigger the completion bonus.
+                # overallState only means "everything placed so far is correct", not completion
                 completed = game_state.is_complete()
             else:
                 progress_delta, completed = 0.0, False
@@ -385,13 +312,12 @@ def run_builder_episode(
             move_invalid=move_invalid,
         )
         reward_info["turn"] = turn
-        # eval-facing metrics, not used by the reward
+        # eval-only metrics
         reward_info["matched_oracle_strict"] = _strict_match(move, oracle_moves) if oracle_in_prompt else None
         reward_info["correct_move"] = _strict_match(move, all_correct)
         reward_info["director_retries"] = director_retries
         reward_info["director_failures"] = director_failures
         reward_info["completion_tokens"] = int(len(new_tokens)) if hasattr(new_tokens, "__len__") else None
-        # board progress after this turn, for per-turn progress curves
         reward_info["progress"] = tracker.calculate_progress(game_state.current_structure)["overall_progress"]
         print(
             f"  [rollout] structure={structure_index} turn={turn + 1}/{max_turns} "
@@ -407,15 +333,6 @@ def run_builder_episode(
         if completed:
             break
 
-    # Terminal overall_progress for this episode -- the actual objective
-    # (final progress, ideally 1.0) as opposed to progress_delta, which is
-    # the dense per-turn shaping signal used for training. Logged separately
-    # so training progress and the true end goal can be tracked independently
-    # of each other. Attached to the last turn's reward_info since this is an
-    # episode-level (not per-turn) quantity and reward_infos is a per-turn list.
-    # Read progress off the final board itself. The old
-    # `history[-1] if history else 0.0` scored an episode with no successful
-    # move as 0.0 even when it started from a partially built board.
     final_progress = tracker.calculate_progress(game_state.current_structure)["overall_progress"]
     if reward_infos:
         reward_infos[-1]["final_progress"] = final_progress

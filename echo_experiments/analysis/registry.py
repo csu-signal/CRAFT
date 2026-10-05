@@ -56,8 +56,8 @@ MODEL_STYLES = {
     "GPT-5.4 mini": "#8a7fb5",
     "GPT-4.1 mini": "#7897bc",
     # listed largest first: this order is also the bar/legend order
-    "Qwen2.5-72B": "#f2c230",  # yellow
-    "Qwen2.5-32B": "#eb9834",  # orange
+    "Qwen2.5-72B": "#f2c230",
+    "Qwen2.5-32B": "#eb9834",
     "Qwen2.5-14B": "#a86b32",
     "Qwen2.5-7B": "#a9a9a9",
 }
@@ -96,10 +96,9 @@ def short_model_name(hf_id, quantize=None):
     if low.startswith("gpt-"):
         name = "GPT-" + name[4:].replace("-mini", " mini").replace("-nano", " nano")
     elif low.startswith(("gemini-", "claude-")):
-        # claude-haiku-4-5 -> Claude Haiku 4.5; gemini-3.8-flash -> Gemini 3.8 Flash
         parts = re.sub(r"(\d)-(\d)", r"\1.\2", name).split("-")
         name = " ".join(p.capitalize() if p.isalpha() else p for p in parts)
-    return name  # quantization is recorded in each run's config, not shown in the name
+    return name
 
 
 def model_size_b(name):

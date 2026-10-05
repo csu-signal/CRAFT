@@ -1,8 +1,4 @@
-"""
-CRAFTEchoTrainer -- GRPO subclass implementing ECHO-style per-turn credit for
-the CRAFT builder, plus the episode_return and rloo_per_turn baselines,
-selected via `advantage_mode`. 
-"""
+"""GRPO trainer for the CRAFT builder with multi-turn advantage modes (echo, episode_return, rloo_per_turn)."""
 import pickle
 from pathlib import Path
 
@@ -54,8 +50,6 @@ class CRAFTEchoTrainer(GRPOTrainer):
         self.run_id = run_id
 
         self.logprob_batch_size = logprob_batch_size
-        # See training_step() override below -- caps how many turn-sequences
-        # get forward+backward'd through the model in one shot.
         self.train_micro_batch_size = train_micro_batch_size
 
         self._builder_logs = {k: [] for k in self.BUILDER_LOG_KEYS}
@@ -72,11 +66,8 @@ class CRAFTEchoTrainer(GRPOTrainer):
         self._buffered_group_sizes = None
         self._current_group_sizes = None
 
-    # ---- micro-batched forward+backward ------------------------------------
     def training_step(self, model, inputs, num_items_in_batch=None):
-        """
-        chunking the forward+backward pass
-        """
+        """Forward+backward in micro-batches of train_micro_batch_size sequences."""
         model.train()
         if hasattr(self.optimizer, "train") and callable(self.optimizer.train):
             self.optimizer.train()
@@ -118,7 +109,6 @@ class CRAFTEchoTrainer(GRPOTrainer):
 
         return total_loss.detach()
 
-    # ---- logging helpers (mirrors ECHOTrainer) ----------------------------
     def _clear_builder_logs(self):
         for k in self.BUILDER_LOG_KEYS:
             self._builder_logs[k] = []
@@ -151,18 +141,13 @@ class CRAFTEchoTrainer(GRPOTrainer):
         M.setdefault(f"{prefix}builder/invalid_move_rate", []).append(self._safe_rate(L["move_invalid"]))
         M.setdefault(f"{prefix}builder/mean_episode_length", []).append(
             float(np.mean(group_sizes)) if group_sizes else float("nan"))
-        # The actual objective (terminal overall_progress, ideally 1.0) --
-        # distinct from progress_delta_mean, which is the dense per-turn
-        # training signal. This is only set on each episode's last turn (see
-        # rollout.run_builder_episode), so L["final_progress"] naturally has
-        # one entry per episode in this window, not one per turn.
+        # final_progress is only set on each episode's last turn, so this is a per-episode mean
         M.setdefault(f"{prefix}builder/final_progress_mean", []).append(self._safe_mean(L["final_progress"]))
 
         rewards = [info.get("training_reward", 0.0) for info in reward_infos]
         M.setdefault("reward", []).append(float(np.mean(rewards)) if rewards else float("nan"))
         M.setdefault("reward_std", []).append(float(np.std(rewards)) if rewards else float("nan"))
 
-    # ---- generation-batch buffering (ported unchanged from ECHOTrainer) ---
     def _prepare_inputs(self, generation_batch):
         mode = "train" if self.model.training else "eval"
 
@@ -333,7 +318,6 @@ class CRAFTEchoTrainer(GRPOTrainer):
             output["ref_per_token_logps"] = ref_per_token_logps
         return output
 
-    # ---- CRAFT-specific rollout --------------------------------------------
     def _run_single_episode(self, structure_data, structure_idx, device):
         def generate_fn(prompt_text, oracle_moves):
             system_prompt = BUILDER_SYSTEM_PROMPT_ORACLE if oracle_moves else BUILDER_SYSTEM_PROMPT_BASE
@@ -394,8 +378,8 @@ class CRAFTEchoTrainer(GRPOTrainer):
         print(
             f"\n{'='*60}\n[{mode.upper()}] step={step}\n"
             f"  reward           = {logs.get('reward', float('nan')):.4f}\n"
-            f"  final_progress   = {_g('final_progress_mean'):.4f}  <- the actual objective (target: 1.0)\n"
-            f"  progress_delta   = {_g('progress_delta_mean'):.4f}  (dense per-turn training signal)\n"
+            f"  final_progress   = {_g('final_progress_mean'):.4f}\n"
+            f"  progress_delta   = {_g('progress_delta_mean'):.4f}\n"
             f"  completed_rate   = {_g('completed_rate'):.3f}\n"
             f"  oracle_match     = {_g('oracle_match_rate'):.3f}\n"
             f"  clarify_rate     = {_g('clarify_rate'):.3f}\n"
@@ -407,8 +391,7 @@ class CRAFTEchoTrainer(GRPOTrainer):
 
 
 class Fixed_GRPOConfig(GRPOConfig):
-    """Ported unchanged from echo-edp/train_echo.py -- fixes TRL's mutual-
-    exclusion bug for generation_batch_size / steps_per_generation."""
+    """Allows setting both generation_batch_size and steps_per_generation, which TRL rejects."""
 
     def __post_init__(self):
         import transformers

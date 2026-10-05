@@ -9,7 +9,6 @@ ECHO ("echo" mode): per-turn cross-generation normalization.
 Baselines included:
   episode_return  — REINFORCE: sum rewards per episode, same value broadcast to all turns
   rloo_per_turn   — leave-one-out per turn
-
 """
 
 import torch

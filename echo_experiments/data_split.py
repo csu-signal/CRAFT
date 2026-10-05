@@ -1,11 +1,5 @@
 """
-Train/eval structure pools for CRAFT-ECHO experiments.
-
-Training draws from a large, freshly generated pool (via
-structure_generator_v2.generate_dataset) so the shipped 20-structure
-benchmark (data/structures_dataset_20.json) -- used for the paper's reported
-results and leaderboard -- is never trained on and stays available as a
-clean held-out set for the within-turn eval pool (build_eval_pool.py).
+Train/eval structure pools. Training uses a generated pool; the 20-structure benchmark is held out.
 
 Usage:
     python data_split.py --n 500          # writes data/train_structures.json
@@ -21,9 +15,7 @@ if str(_CRAFT_ROOT) not in sys.path:
 
 from structure_generator_v2 import generate_dataset
 
-# Deliberately different from the benchmark dataset's generation seed (42,
-# per structure_generator_v2.py's own __main__ block) to avoid any chance of
-# overlap with data/structures_dataset_20.json.
+# differs from the benchmark's generation seed (42) to avoid overlap
 DEFAULT_TRAIN_SEED = 1000
 DEFAULT_TRAIN_POOL_PATH = Path(__file__).resolve().parent / "data" / "train_structures.json"
 BENCHMARK_PATH = _CRAFT_ROOT / "data" / "structures_dataset_20.json"
@@ -50,7 +42,6 @@ def load_training_pool(path=DEFAULT_TRAIN_POOL_PATH):
 
 
 def load_benchmark_structures(path=BENCHMARK_PATH):
-    """The shipped 20-structure eval set -- never used for training."""
     with open(path) as f:
         return json.load(f)
 

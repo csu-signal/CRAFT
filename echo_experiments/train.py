@@ -1,18 +1,11 @@
 """
-CLI entrypoint for CRAFT builder training -- the three GRPO-family
-conditions from the within-turn experiment design (ECHO, episode_return,
-rloo_per_turn). 
+Train a CRAFT builder with GRPO.
 
     python train.py --mode echo --steps 300
     python train.py --mode episode_return --steps 300
     python train.py --mode rloo_per_turn --steps 300
 
-Run `python data_split.py` first to generate the training-only structure
-pool this reads from. Each --mode trains an otherwise identical checkpoint
-(same base model, LoRA config, turn budget, oracle_n) differing only in how
-advantages.compute_multiturn_advantages assigns credit -- that's the one
-independent variable the within-turn eval (eval_within_turn.py) is set up
-to compare.
+Requires the training pool from `python data_split.py`.
 """
 import argparse
 import datetime
@@ -32,9 +25,6 @@ def _pre_parse_gpus():
 
 _GPU, _DIRECTOR_GPU, _CUDA_VISIBLE_DEVICES = _pre_parse_gpus()
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", _CUDA_VISIBLE_DEVICES)
-# Local index of the director model within CUDA_VISIBLE_DEVICES: same
-# device as the builder (local cuda:0) when --gpu == --director_gpu, else
-# the second entry we just added to CUDA_VISIBLE_DEVICES (local cuda:1).
 _LOCAL_DIRECTOR_GPU = 0 if _GPU == _DIRECTOR_GPU else 1
 
 import torch
@@ -49,8 +39,6 @@ from trainer import CRAFTEchoTrainer, Fixed_GRPOConfig
 
 load_dotenv()
 
-# Local director model keys -- subset of run_craft.py's LOCAL_MODELS relevant
-# to the within-turn experiments so far.
 LOCAL_DIRECTOR_MODELS = {
     "mistral-7b": "mistralai/Mistral-7B-Instruct-v0.3",
     "qwen-7b": "Qwen/Qwen2.5-7B-Instruct",
@@ -103,7 +91,7 @@ def train(
     max_turns=8,
     num_generations=3,
     per_device_train_batch_size=2,
-    max_prompt_length=3584,  # if oracle moves set to 20, needs longer prompt budget
+    max_prompt_length=3584,
     max_completion_length=220,
     learning_rate=5e-6,
     temperature=1.0,
@@ -120,10 +108,7 @@ def train(
     train_micro_batch_size=4,
     resume_from_checkpoint=None,
 ):
-    assert mode in ("echo", "episode_return", "rloo_per_turn"), (
-        f"unknown mode {mode!r} -- choose echo, episode_return, or rloo_per_turn "
-        "(PPO is a separate pipeline, see trainer.py's module docstring)"
-    )
+    assert mode in ("echo", "episode_return", "rloo_per_turn"), f"unknown mode {mode!r}"
     set_seed(seed)
 
     structures = load_training_pool(train_pool_path) if train_pool_path else load_training_pool()
@@ -138,15 +123,7 @@ def train(
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
-    # Real builder prompts (spatial reference + few-shot examples + oracle
-    # candidates + live discussion) run ~2700-2800 tokens -- the previous
-    # max_prompt_length=2048 default truncated every one of them. Default
-    # truncation_side is "right", which cuts off the END of the prompt --
-    # exactly where the live board state, director discussion, and oracle
-    # candidates live -- leaving the model to autocomplete a fragment of the
-    # static preamble instead of answering. Truncate from the left instead
-    # (drops older static reference material first) as a safety net on top
-    # of the larger max_prompt_length below.
+    # live board state and discussion are at the end of the prompt
     tokenizer.truncation_side = "left"
 
     lora_config = LoraConfig(
@@ -185,15 +162,7 @@ def train(
         seed=seed,
         temperature=temperature,
     )
-    # With director_mode="local" both physical GPUs are visible to this
-    # process (builder on cuda:0, director pipeline on cuda:1), so
-    # TrainingArguments.n_gpu auto-detects 2 -- which makes
-    # transformers.Trainer._wrap_model silently wrap the *builder* model in
-    # nn.DataParallel across both cards (fighting the director pipeline
-    # already resident on cuda:1) the moment .train() starts. That's a
-    # read-only property backed by ._n_gpu; overriding it here forces
-    # single-GPU training regardless of how many devices are visible, without
-    # having to hide the second GPU (which the local director needs).
+    # prevent Trainer from wrapping the builder in DataParallel when the director's GPU is visible
     grpo_config._n_gpu = 1
 
     trainer = CRAFTEchoTrainer(
@@ -224,48 +193,27 @@ def train(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a CRAFT builder with ECHO / episode_return / rloo_per_turn")
-    parser.add_argument("--gpu", type=int, default=0,
-                        help="physical GPU index for the builder model -- consumed before torch is imported "
-                             "(_pre_parse_gpus above), so it takes effect via CUDA_VISIBLE_DEVICES")
+    parser.add_argument("--gpu", type=int, default=0, help="physical GPU index for the builder model")
     parser.add_argument("--mode", choices=["echo", "episode_return", "rloo_per_turn"], default="echo")
     parser.add_argument("--steps", type=int, default=300)
     parser.add_argument("--model", type=str, default="Qwen/Qwen2.5-7B-Instruct")
     parser.add_argument("--train_pool", type=str, default=None, help="path from data_split.py; default data/train_structures.json")
     parser.add_argument("--oracle_n", type=int, default=20)
-    parser.add_argument("--max_turns", type=int, default=8,
-                        help="episode turn cap -- each turn costs 3 frozen director generations + 1 builder "
-                             "generation, so this is the single biggest lever on rollout wall-clock")
+    parser.add_argument("--max_turns", type=int, default=8, help="episode turn cap")
     parser.add_argument("--num_generations", type=int, default=3,
-                        help="G -- parallel rollouts per structure per step. Episodes per generation phase = "
-                             "batch_size * num_generations^2 (confirmed against trainer.py's "
-                             "_generate_and_score_completions), so this scales rollout cost quadratically -- "
-                             "at ~89 sec/episode (observed), G=3/batch_size=2 runs ~26.6 min/step vs ~5.9 "
-                             "min/step at the old G=2/batch_size=1 defaults")
-    parser.add_argument("--batch_size", type=int, default=2, help="structures per step -- scales rollout cost linearly")
+                        help="rollouts per structure; episodes per generation phase = batch_size * num_generations^2")
+    parser.add_argument("--batch_size", type=int, default=2, help="structures per step")
     parser.add_argument("--lr", type=float, default=5e-6)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--director_model", type=str, default="gpt-4.1-mini",
                         help="api: model name (e.g. gpt-4.1-mini); local: key from LOCAL_DIRECTOR_MODELS "
                              f"({list(LOCAL_DIRECTOR_MODELS)}) or a full HF path")
     parser.add_argument("--director_mode", type=str, default="api", choices=["api", "local"],
-                        help="api calls OpenAI for each director (default -- matches run_craft.py's own "
-                             "builder convention and this session's baseline-check finding that local "
-                             "Mistral directors weren't a clear win over API ones). local reuses one shared "
-                             "open-weight model across all three directors instead -- see "
-                             "local_model_utils.load_local_director_pipeline")
+                        help="api: OpenAI directors; local: one shared open-weight model for all three")
     parser.add_argument("--director_gpu", type=int, default=1,
-                        help="physical GPU index for the shared local director model -- consumed before torch "
-                             "is imported, same as --gpu. Defaults to a different physical GPU than --gpu (1 "
-                             "vs 0), so builder and director share the two cards instead of both loading onto "
-                             "one; pass the same value as --gpu to force them back onto a single device")
+                        help="physical GPU index for the local director model; same as --gpu to share one device")
     parser.add_argument("--director_max_new_tokens", type=int, default=448,
-                        help="cap on the local director's generation length. Measured against the actual "
-                             "Mistral-7B pipeline with no cap: natural <think>+<message> completions ran "
-                             "120-290 tokens (p90=275) on fresh turns, with longer conversation history "
-                             "pushing some responses higher -- 256 was cutting off ~60%% of turns before "
-                             "the closing </message> tag (confirmed via missing-closing-tag rate in a real "
-                             "run's logs), silently truncating live director instructions. 448 leaves real "
-                             "margin without going back to the original flat 512.")
+                        help="local director generation cap")
     parser.add_argument("--director_quantize", type=str, default=None, choices=[None, "4bit", "8bit"],
                         help="quantization for the local director model, if --director_mode local")
     parser.add_argument("--log_dir", type=str, default="craft_echo_runs")
@@ -273,25 +221,11 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--report_to", type=str, default="none", choices=["none", "wandb", "tensorboard"])
     parser.add_argument("--logprob_batch_size", type=int, default=16,
-                        help="inference-only (no-grad) chunk size for the post-rollout old/ref logprob "
-                             "pass -- independent of --train_micro_batch_size (the actual gradient-computing "
-                             "forward+backward chunk size); no-grad passes need far less memory per sequence")
+                        help="chunk size for the no-grad old/ref logprob pass")
     parser.add_argument("--train_micro_batch_size", type=int, default=4,
-                        help="max turn-sequences forward+backward'd through the model at once during the "
-                             "actual gradient step. _split_by_episodes bundles steps_per_generation's worth "
-                             "of full episodes (batch_size x num_generations turns) into one training_step "
-                             "call for GRPO group-size reasons unrelated to GPU memory -- at the 7B model's "
-                             "prompt/completion lengths that can OOM (confirmed: 6 episodes x up to 20 turns "
-                             "= up to 120 sequences, one MLP alloc needing 13.53 GiB). This re-chunks that "
-                             "slice into micro-batches with the standard gradient-accumulation loss scaling, "
-                             "so only one chunk's activations are resident at a time -- lower if still OOMing, "
-                             "raise for speed if memory allows")
+                        help="sequences per forward+backward chunk; lower if OOM")
     parser.add_argument("--resume_from_checkpoint", type=str, default=None,
-                        help="path to a checkpoint-N directory (e.g. craft_echo_runs/<run_name>/checkpoint-175) "
-                             "to continue from -- preserves that run's already-trained LoRA weights, optimizer "
-                             "state, and global_step rather than starting over. Writes into a fresh run_dir/wandb "
-                             "run rather than the original one, so the before/after reward-formulation change is "
-                             "visible as two adjacent curves instead of overwriting history")
+                        help="checkpoint-N directory to resume from (writes to a new run dir)")
     args = parser.parse_args()
     if _GPU == _DIRECTOR_GPU:
         print(f"physical GPU: {_GPU} (builder + local director share it, visible as cuda:0)")

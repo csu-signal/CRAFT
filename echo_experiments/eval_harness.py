@@ -1,14 +1,7 @@
 """
-The full-game eval protocol, shared by eval_full_game.py (local models) and
-baseline_sanity_check.py (API builders). Everything that has to be identical
-across conditions for the comparison to be fair lives here: which structures,
-how many episodes each, per-episode seeds and starting boards, the oracle
-setting, prompting style, and how results are recorded. The two scripts only
-supply a generate_fn.
+Full-game eval protocol shared by eval_full_game.py and baseline_sanity_check.py.
 
-Pairing: episode `rep` of structure `s` gets the same seed -- hence the same
-starting board, director speaking order and oracle candidate sample -- in
-every condition, so conditions can be compared structure by structure.
+Episode `rep` of structure `s` gets the same seed in every condition, so results are paired.
 """
 import argparse
 import datetime
@@ -56,15 +49,14 @@ def add_protocol_args(parser):
     g.add_argument("--no_oracle", action="store_true",
                    help="ablation: sample the candidates as usual but don't show them to the builder")
     g.add_argument("--part_type", default="seeded", choices=["seeded", "empty", "random"],
-                   help="starting board: 'seeded' = deterministic partial start per (structure, episode), "
-                        "matching training's distribution; 'empty' = run_craft.py's benchmark setting; "
-                        "'random' = legacy unseeded behaviour (breaks pairing -- don't use for results)")
+                   help="starting board: 'seeded' = deterministic partial start per (structure, episode); "
+                        "'empty' = empty board; 'random' = unseeded (breaks pairing)")
     g.add_argument("--prompt_style", default="default", choices=["default", "cot"])
     g.add_argument("--director_model", type=str, default="gpt-4.1-mini")
     g.add_argument("--seed", type=int, default=42)
     g = parser.add_argument_group("bookkeeping")
     g.add_argument("--label", type=str, required=True,
-                   help="unique per condition, e.g. base_7b, cot_7b, echo, rloo, grpo, base_72b, api_gpt-5.4")
+                   help="unique per condition, e.g. base_7b, echo")
     g.add_argument("--run_name", type=str, default=None)
     g.add_argument("--resume", action="store_true", help="continue a crashed run (same --run_name)")
     g.add_argument("--out_dir", type=str, default="eval_results")
@@ -96,9 +88,7 @@ def episode_seed(seed, structure_idx, rep):
 
 
 def run_eval(args, generate_fn, config, checkpoint=None, director_setup=None):
-    """Runs every (structure, episode) not already done, saving as it goes.
-    `config` is the condition-specific part (model, decoding); protocol
-    settings are added here so every result file records them the same way."""
+    """Run every (structure, episode) not already logged. `config` holds condition-specific settings."""
     director_setup = director_setup or {}
     structures, digest = load_eval_structures(args.structures_path, args.train_pool)
     n_structures = args.n_structures or len(structures)
@@ -106,7 +96,6 @@ def run_eval(args, generate_fn, config, checkpoint=None, director_setup=None):
 
     now = datetime.datetime.now().strftime("%Y%m%d_%H%M")
     run_name = args.run_name or f"fullgame_{args.label}_seed{args.seed}_{now}"
-    # eval_results/ -> eval_results.csv, eval_results_no_oracle/ -> eval_results_no_oracle.csv
     out_csv = args.out_csv or f"{Path(args.out_dir).as_posix().rstrip('/')}.csv"
     config = {
         **config,

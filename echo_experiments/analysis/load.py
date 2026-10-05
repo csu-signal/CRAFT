@@ -9,9 +9,7 @@ import pandas as pd
 
 from .registry import parse_label, short_model_name
 
-# Settings that must match across conditions for the comparison to be fair.
-# Sampling temperature and the builder model are deliberately excluded --
-# those differ by design between checkpoints and the API baseline.
+# settings that should match across conditions (warn if not)
 COMPARABILITY_KEYS = ["director_mode", "director_model", "oracle_n", "max_turns", "n_structures",
                       "episodes_per_structure", "part_type"]
 
@@ -74,9 +72,6 @@ def _warn_incomparable(configs):
 
 
 def structure_units(df, label, metric):
-    """Per-structure mean of `metric` for one condition. Structures (not
-    episodes or turns) are the unit for CIs and paired tests: every condition
-    runs the same benchmark structures, and repeat episodes / reruns of one
-    structure are averaged rather than counted as independent samples."""
+    """Per-structure mean of `metric` for one condition; the unit for CIs and paired tests."""
     sub = df[df["label"] == label]
     return sub.groupby("structure_idx")[metric].mean().dropna()

@@ -1,24 +1,8 @@
-"""
-API builder adapters (OpenAI, Gemini, Anthropic) returning the
-(input_ids, new_tokens, decoded_text) triple run_builder_episode expects.
-
-Provider quirks handled here rather than per model:
-  * Reasoning models (GPT-5 family, o-series, Gemini 3 thinking) spend part
-    of the output budget on hidden reasoning -- a 250-token cap returns an
-    empty answer. Their default budget is larger, and every response that
-    stopped on the length limit is counted in `stats` so it can't go
-    unnoticed.
-  * OpenAI reasoning models reject `max_tokens` (need
-    `max_completion_tokens`) and may only accept the default temperature;
-    if a temperature is refused, the call is retried without it and the
-    run records that the provider default was used.
-  * Transient errors (rate limits, 5xx, timeouts) are retried with
-    exponential backoff; a call that still fails raises, stopping the run
-    so it can be resumed rather than silently scoring a parse failure.
-"""
+"""API builder generate_fns for OpenAI, Gemini, and Anthropic models."""
 import os
 import re
 import time
+from collections import deque
 
 import torch
 
@@ -41,9 +25,17 @@ def is_reasoning_model(model):
 
 
 def default_max_tokens(model, prompt_style):
+    # reasoning models and Claude spend output tokens on reasoning before the answer
     if is_reasoning_model(model):
         return 8192
-    return 1024 if prompt_style == "cot" else 250  # 250 = BuilderAgent.generate_move's production value
+    if provider_for(model) == "anthropic":
+        return 2048
+    return 1024 if prompt_style == "cot" else 250
+
+
+# abort if most of the last TRUNCATION_WINDOW responses hit the token limit
+TRUNCATION_WINDOW = 20
+TRUNCATION_ABORT_RATE = 0.5
 
 
 def _with_retries(fn, what):
@@ -52,7 +44,6 @@ def _with_retries(fn, what):
             return fn()
         except Exception as e:
             status = getattr(e, "status_code", None)
-            # 4xx other than rate limiting won't fix itself
             if status is not None and 400 <= status < 500 and status not in (408, 409, 429):
                 raise
             if attempt == RETRIES:
@@ -62,11 +53,14 @@ def _with_retries(fn, what):
             time.sleep(wait)
 
 
-def make_api_generate_fn(model, system_prompt_fn, max_tokens, temperature=None, reasoning_effort=None):
-    """system_prompt_fn(oracle_shown: bool) -> str."""
+def make_api_generate_fn(model, system_prompt_fn, max_tokens, temperature=None, reasoning_effort=None,
+                         thinking=None):
+    """system_prompt_fn(oracle_shown: bool) -> str. thinking: None (provider default), "disabled" or
+    "adaptive" -- Anthropic only."""
     provider = provider_for(model)
     stats = {"calls": 0, "length_stops": 0, "empty_responses": 0, "temperature_refused": False,
              "provider": provider}
+    recent_stops = deque(maxlen=TRUNCATION_WINDOW)
 
     if provider == "anthropic":
         import anthropic
@@ -81,6 +75,10 @@ def make_api_generate_fn(model, system_prompt_fn, max_tokens, temperature=None, 
         if provider == "anthropic":
             kwargs = dict(model=model, system=system, max_tokens=max_tokens,
                           messages=[{"role": "user", "content": user}])
+            if thinking:
+                kwargs["thinking"] = {"type": thinking}
+            if reasoning_effort:
+                kwargs["output_config"] = {"effort": reasoning_effort}
             if temperature is not None and not stats["temperature_refused"]:
                 kwargs["temperature"] = temperature
             try:
@@ -98,7 +96,6 @@ def make_api_generate_fn(model, system_prompt_fn, max_tokens, temperature=None, 
 
         kwargs = dict(model=model, messages=[{"role": "system", "content": system},
                                              {"role": "user", "content": user}])
-        # max_completion_tokens is accepted by every current OpenAI chat model;
         # Gemini's OpenAI-compatible endpoint takes max_tokens
         kwargs["max_completion_tokens" if provider == "openai" else "max_tokens"] = max_tokens
         if temperature is not None and not stats["temperature_refused"]:
@@ -129,8 +126,13 @@ def make_api_generate_fn(model, system_prompt_fn, max_tokens, temperature=None, 
         if hit_limit and not text.strip():
             print(f"  [builder {model}] WARNING: hit the {max_tokens}-token limit with no visible answer "
                   f"(reasoning budget?) -- raise --builder_max_tokens")
-        # token tensors are never used for API builders (no gradients); the
-        # length carries the output token count into the results
+        recent_stops.append(hit_limit)
+        if len(recent_stops) == TRUNCATION_WINDOW and sum(recent_stops) / TRUNCATION_WINDOW > TRUNCATION_ABORT_RATE:
+            raise SystemExit(
+                f"[builder {model}] {sum(recent_stops)} of the last {TRUNCATION_WINDOW} responses hit the "
+                f"{max_tokens}-token limit -- the model is being cut off before it answers. Rerun with a larger "
+                f"--builder_max_tokens or --thinking disabled (and --resume to keep the episodes already saved)")
+        # placeholder tensors; new_tokens length carries the output token count
         return torch.zeros(1, dtype=torch.long), torch.zeros(n_out or 0, dtype=torch.long), text
 
     return generate_fn, stats

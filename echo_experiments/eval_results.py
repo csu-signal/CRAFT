@@ -1,12 +1,7 @@
 """
-Per-episode aggregation and on-disk results for full-game evals, shared by
-eval_full_game.py (local checkpoints / base models) and baseline_sanity_check.py
-(API builders) so every condition lands in the same table with the same
-metric definitions.
+Per-episode metrics, aggregation, and result files for full-game evals.
 
-Each finished episode is appended to <out_dir>/<run_name>.partial.jsonl as it
-completes, so a crash or preemption hours into a run loses at most one
-episode -- rerun with the same --run_name and --resume to continue.
+Episodes are appended to <out_dir>/<run_name>.partial.jsonl as they finish; use --resume to continue.
 """
 import csv
 import json
@@ -34,16 +29,10 @@ def _rate(bools):
 
 
 def episode_metrics(episode):
-    """One value per metric for a single episode (a run_builder_episode()
-    result). Aggregating these across episodes -- then structures, in the
-    analysis -- rather than pooling turns is what makes the CIs meaningful:
-    turns within an episode are correlated.
+    """Per-episode metrics from a run_builder_episode() result.
 
-    `completed` is 0/1 per episode (it's only set on the last turn).
-    `oracle_match_rate` is the strict match against the candidates shown
-    (block and span must match too); NaN when no candidates were shown.
-    `correct_move_rate` is the strict match against *every* valid
-    target-advancing move, so it's defined with or without oracle hints."""
+    oracle_match_rate: strict match against the candidates shown (NaN if none shown).
+    correct_move_rate: strict match against every valid target-advancing move."""
     infos = episode["reward_infos"]
     n_turns = len(infos)
     return {
@@ -64,8 +53,6 @@ def episode_metrics(episode):
                                   if n_turns else float("nan")),
         "director_retries": int(sum(info.get("director_retries", 0) for info in infos)),
         "completion_tokens_mean": _mean([info.get("completion_tokens") for info in infos]),
-        # board progress at turn 0 (start) .. turn T; the analysis carries the
-        # last value forward for episodes that finished early
         "progress_curve": [episode.get("initial_progress")] + [info.get("progress") for info in infos],
     }
 
@@ -112,9 +99,7 @@ RESULT_FIELDS = ["label", "checkpoint", "run_name", "n_episodes"] + [
 
 
 def save_eval_results(out_dir, out_csv, label, checkpoint, run_name, config, per_episode):
-    """Writes <out_dir>/<run_name>.json (config, aggregates, and every
-    episode's values -- enough to recompute CIs or paired per-structure
-    tests across conditions later) and appends a mean/std row to out_csv."""
+    """Write <out_dir>/<run_name>.json and append a mean/std row to out_csv."""
     agg = aggregate_episodes(per_episode)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -131,7 +116,6 @@ def save_eval_results(out_dir, out_csv, label, checkpoint, run_name, config, per
         with open(out_csv) as f:
             header = f.readline().strip().split(",")
         if header != RESULT_FIELDS:
-            # metric set changed since this CSV was started -- don't append misaligned rows
             legacy = out_csv.with_suffix(".legacy.csv")
             out_csv.rename(legacy)
             print(f"[results] {out_csv} had an older column layout; moved it to {legacy}")

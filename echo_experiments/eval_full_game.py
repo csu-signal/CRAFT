@@ -1,13 +1,5 @@
 """
-Full-game evaluation of a local builder -- a trained LoRA checkpoint or an
-untrained base model of any size -- through complete multi-turn episodes
-against frozen directors on held-out structures. The protocol (structures,
-episodes per structure, seeds, starting boards, oracle setting) lives in
-eval_harness.py and is shared with baseline_sanity_check.py's API builders.
-
-Generation mirrors trainer.py's generate_fn (same chat template and
-oracle/base system prompt selection) so a checkpoint is evaluated the way it
-was trained.
+Full-game evaluation of a local builder (LoRA checkpoint or base model) on held-out structures.
 
 Usage (run from echo_experiments/, with HF_HOME=/data/huggingface_cache):
     # zero-shot base models
@@ -39,8 +31,7 @@ def _pre_parse_gpus():
     return gpus, len(known.gpus.split(","))
 
 
-# Builder runs on --gpus (default physical GPU 0; pass e.g. 0,1 to shard a
-# large model). A local director is appended as the last visible device.
+# a local director is appended as the last visible device
 _VISIBLE, _N_BUILDER_GPUS = _pre_parse_gpus()
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", _VISIBLE)
 
@@ -58,7 +49,7 @@ from eval_harness import DEFAULT_MAX_TOKENS, add_protocol_args, builder_system_p
 
 load_dotenv()
 
-TRAIN_MAX_PROMPT_LENGTH = 3584  # train.py's max_prompt_length
+TRAIN_MAX_PROMPT_LENGTH = 3584
 
 LOCAL_DIRECTOR_MODELS = {
     "mistral-7b": "mistralai/Mistral-7B-Instruct-v0.3",
@@ -76,7 +67,7 @@ def load_builder(base_model, checkpoint=None, quantize=None, n_gpus=1):
             bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
         )
     if quantize or n_gpus > 1:
-        # only the builder's GPUs -- a local director sits on the last visible device
+        # exclude the local director's device
         kwargs["device_map"] = "auto"
         kwargs["max_memory"] = {i: torch.cuda.get_device_properties(i).total_memory for i in range(n_gpus)}
     model = AutoModelForCausalLM.from_pretrained(base_model, **kwargs)
@@ -89,8 +80,7 @@ def load_builder(base_model, checkpoint=None, quantize=None, n_gpus=1):
 
 
 def make_checkpoint_generate_fn(model, tokenizer, max_prompt_length, max_new_tokens, temperature, prompt_style):
-    """Mirrors trainer.py's generate_fn (chat template, oracle/base system
-    prompt, top_p=0.9) plus the optional CoT instruction. temperature=0 -> greedy."""
+    """Same generation setup as training, plus optional CoT. temperature=0 is greedy."""
     device = next(model.parameters()).device
     stats = {"prompt_tokens_max": 0, "prompts_over_train_limit": 0, "prompts_truncated": 0}
 
@@ -106,7 +96,6 @@ def make_checkpoint_generate_fn(model, tokenizer, max_prompt_length, max_new_tok
         stats["prompt_tokens_max"] = max(stats["prompt_tokens_max"], input_ids.shape[1])
         stats["prompts_over_train_limit"] += int(input_ids.shape[1] > TRAIN_MAX_PROMPT_LENGTH)
         if max_prompt_length and input_ids.shape[1] > max_prompt_length:
-            # left truncation (training's behaviour) drops the system prompt and task instructions
             stats["prompts_truncated"] += 1
             input_ids = input_ids[:, -max_prompt_length:]
         input_ids = input_ids.to(device)
@@ -135,8 +124,7 @@ def main():
     g.add_argument("--max_new_tokens", type=int, default=None,
                    help=f"default: {DEFAULT_MAX_TOKENS['default']} (default style) / {DEFAULT_MAX_TOKENS['cot']} (cot)")
     g.add_argument("--max_prompt_length", type=int, default=0,
-                   help="0 = never truncate (default). Training left-truncated at 3584, which cuts off the "
-                        "system prompt; prompts over that length are counted in the results either way")
+                   help="left-truncate prompts to this length; 0 = never truncate")
     g = parser.add_argument_group("local director (default: API directors)")
     g.add_argument("--director_mode", type=str, default="api", choices=["api", "local"])
     g.add_argument("--director_gpu", type=int, default=1)
@@ -154,7 +142,7 @@ def main():
     director_setup = {"director_mode": args.director_mode}
     if args.director_mode == "local":
         path = LOCAL_DIRECTOR_MODELS.get(args.director_model, args.director_model)
-        local_idx = _N_BUILDER_GPUS  # appended after the builder's GPUs in CUDA_VISIBLE_DEVICES
+        local_idx = _N_BUILDER_GPUS
         print(f"loading shared local director model {path} on physical GPU {args.director_gpu}...")
         pipe, tok = load_local_director_pipeline(path, quantize=args.director_quantize, gpus=[local_idx],
                                                  max_new_tokens=args.director_max_new_tokens)
@@ -164,7 +152,7 @@ def main():
         "builder_kind": "local", "base_model": args.base_model, "checkpoint": args.checkpoint,
         "quantize": args.quantize, "temperature": args.temperature, "top_p": 0.9 if args.temperature > 0 else None,
         "max_new_tokens": max_new_tokens, "max_prompt_length": args.max_prompt_length,
-        "generation_stats": gen_stats,  # updated during the run; saved with the results
+        "generation_stats": gen_stats,
     }
     run_eval(args, generate_fn, config, checkpoint=args.checkpoint, director_setup=director_setup)
     print(f"[eval-full-game] longest prompt {gen_stats['prompt_tokens_max']} tokens; "

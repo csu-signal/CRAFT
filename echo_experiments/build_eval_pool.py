@@ -1,19 +1,7 @@
 """
-Builds a frozen within-turn evaluation pool.
-
-For a batch of (structure, turn) states, this captures the board state, the
-director discussion, and the oracle candidate list (with each candidate's
-overall_progress) once and saves it. Every checkpoint compared in
-eval_within_turn.py is later scored against this exact same frozen pool, keeping the
-comparison across checkpoints uncounfounded: if directors were resampled
-fresh per evaluation, a score difference between two checkpoints couldn't be
-attributed to the checkpoints rather than to which discussion happened to be
-drawn.
-
-A real BuilderAgent (API model, matching CRAFT's own default builder) is
-used purely as the *reference policy that advances the board between
-snapshots* -- it is not one of the checkpoints being evaluated. Its only job
-here is to produce a plausible sequence of turns to sample states from.
+Build the frozen within-turn eval pool: board state, director discussion, and
+oracle candidates per captured turn. An API reference builder advances the
+board between snapshots.
 
 Usage:
     python build_eval_pool.py --turns_per_structure 6
@@ -104,7 +92,7 @@ def build_pool(
                 "structure_before": {k: list(v) for k, v in game_state.current_structure.items()},
                 "available_blocks": list(game_state.available_blocks),
                 "director_discussion": discussion,
-                "oracle_moves": oracle_candidates,   # full entries, WITH overall_progress
+                "oracle_moves": oracle_candidates,
             })
             captured += 1
 
