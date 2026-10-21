@@ -594,7 +594,7 @@ if __name__ == "__main__":
                         help="Specific director model to run (api: model name, local: key from LOCAL_MODELS)")
     parser.add_argument("--builder",        type=str, default="gpt-4o-mini",
                         help="Builder model name")
-    parser.add_argument("--builderPrompt",  type=str, default="Literal1",
+    parser.add_argument("--builderPrompt",  type=str, default="Base",
                             help="Builder prompt add in name")
     parser.add_argument("--dataset",        type=str, default="/home/hannah/CRAFT/CRAFT/data/structures_dataset_20.json",
                         help="Path to structures dataset JSON")
@@ -692,6 +692,7 @@ if __name__ == "__main__":
         "gpt-4.1-mini":                   2000,
         "gpt-4o":                         2000,
         "claude-haiku-4-5":               3000,
+        "claude-haiku-5-5":               3000,
         "claude-sonnet-4-6":              3000,
         "gemini-2.5-flash":               3000,
         "gemini-2.5-flash-lite":          2000,
