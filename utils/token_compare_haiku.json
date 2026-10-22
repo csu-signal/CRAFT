@@ -1,0 +1,484 @@
+{
+  "summary": {
+    "api_model": "claude-haiku-5-5",
+    "examples": 10,
+    "calls": 14,
+    "max_tokens": 1024,
+    "input_tokens": {
+      "est": 3225,
+      "api": 4729,
+      "ratio": 0.682
+    },
+    "output_tokens": {
+      "est": 3861,
+      "api": 5393,
+      "ratio": 0.716
+    },
+    "input_tokenizer_ratio": 0.664,
+    "output_tokenizer_ratio": 0.644,
+    "output_length_ratio": 1.111,
+    "truncated_calls": {
+      "est": 0,
+      "api": 3
+    },
+    "per_example_total_ratio": {
+      "min": 0.431,
+      "median": 0.699,
+      "max": 0.955
+    }
+  },
+  "examples": [
+    {
+      "id": "fact_qa",
+      "calls": 1,
+      "est_input": 21,
+      "est_output": 230,
+      "est_truncated": 0,
+      "api_input": 27,
+      "api_output": 358,
+      "api_truncated": 0
+    },
+    {
+      "id": "classify",
+      "calls": 1,
+      "est_input": 47,
+      "est_output": 1,
+      "est_truncated": 0,
+      "api_input": 63,
+      "api_output": 6,
+      "api_truncated": 0
+    },
+    {
+      "id": "json_extract",
+      "calls": 1,
+      "est_input": 71,
+      "est_output": 76,
+      "est_truncated": 0,
+      "api_input": 93,
+      "api_output": 61,
+      "api_truncated": 0
+    },
+    {
+      "id": "summarize",
+      "calls": 1,
+      "est_input": 196,
+      "est_output": 109,
+      "est_truncated": 0,
+      "api_input": 273,
+      "api_output": 194,
+      "api_truncated": 0
+    },
+    {
+      "id": "code",
+      "calls": 1,
+      "est_input": 24,
+      "est_output": 477,
+      "est_truncated": 0,
+      "api_input": 34,
+      "api_output": 622,
+      "api_truncated": 0
+    },
+    {
+      "id": "explain",
+      "calls": 1,
+      "est_input": 21,
+      "est_output": 432,
+      "est_truncated": 0,
+      "api_input": 28,
+      "api_output": 1024,
+      "api_truncated": 1
+    },
+    {
+      "id": "brainstorm",
+      "calls": 1,
+      "est_input": 21,
+      "est_output": 101,
+      "est_truncated": 0,
+      "api_input": 32,
+      "api_output": 124,
+      "api_truncated": 0
+    },
+    {
+      "id": "translate",
+      "calls": 1,
+      "est_input": 31,
+      "est_output": 73,
+      "est_truncated": 0,
+      "api_input": 52,
+      "api_output": 111,
+      "api_truncated": 0
+    },
+    {
+      "id": "multi_turn_plan",
+      "calls": 3,
+      "est_input": 2193,
+      "est_output": 1746,
+      "est_truncated": 0,
+      "api_input": 3241,
+      "api_output": 2391,
+      "api_truncated": 2
+    },
+    {
+      "id": "multi_turn_debug",
+      "calls": 3,
+      "est_input": 600,
+      "est_output": 616,
+      "est_truncated": 0,
+      "api_input": 886,
+      "api_output": 502,
+      "api_truncated": 0
+    }
+  ],
+  "est_calls": [
+    {
+      "input_tokens": 21,
+      "output_tokens": 230,
+      "truncated": false
+    },
+    {
+      "input_tokens": 47,
+      "output_tokens": 1,
+      "truncated": false
+    },
+    {
+      "input_tokens": 71,
+      "output_tokens": 76,
+      "truncated": false
+    },
+    {
+      "input_tokens": 196,
+      "output_tokens": 109,
+      "truncated": false
+    },
+    {
+      "input_tokens": 24,
+      "output_tokens": 477,
+      "truncated": false
+    },
+    {
+      "input_tokens": 21,
+      "output_tokens": 432,
+      "truncated": false
+    },
+    {
+      "input_tokens": 21,
+      "output_tokens": 101,
+      "truncated": false
+    },
+    {
+      "input_tokens": 31,
+      "output_tokens": 73,
+      "truncated": false
+    },
+    {
+      "input_tokens": 27,
+      "output_tokens": 602,
+      "truncated": false
+    },
+    {
+      "input_tokens": 644,
+      "output_tokens": 859,
+      "truncated": false
+    },
+    {
+      "input_tokens": 1522,
+      "output_tokens": 285,
+      "truncated": false
+    },
+    {
+      "input_tokens": 56,
+      "output_tokens": 93,
+      "truncated": false
+    },
+    {
+      "input_tokens": 166,
+      "output_tokens": 195,
+      "truncated": false
+    },
+    {
+      "input_tokens": 378,
+      "output_tokens": 328,
+      "truncated": false
+    }
+  ],
+  "api_calls": [
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the capital of Australia, and why isn't it Sydney?"
+        }
+      ],
+      "text": "The capital of Australia is **Canberra**.\n\nSydney isn't the capital for a few historical and political reasons:\n\n1. **Rivalry between Sydney and Melbourne:** When the Australian colonies federated in 1901, Sydney and Melbourne were the two largest and most influential cities, and each wanted to be the capital. Neither would accept the other as the seat of government.\n\n2. **A compromise:** The solution was to create a new capital from scratch in a location between the two cities. The site was chosen in New South Wales, roughly equidistant from Sydney and Melbourne, and the Australian Capital Territory (ACT) was carved out for it. Melbourne served as the temporary seat of government until Parliament moved to Canberra in 1927.\n\n3. **A planned city:** Canberra was designed by American architects Walter Burley Griffin and Marion Mahony Griffin, whose plan was selected through an international competition in 1912.\n\nSydney remains Australia's largest and most famous city, but Canberra was purpose-built to be a neutral capital, which is why it is the seat of the federal government.",
+      "input_tokens": 27,
+      "output_tokens": 358,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 21,
+      "local_count_output": 227
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "Classify the sentiment of the review as positive, negative, or mixed. Answer with one word."
+        },
+        {
+          "role": "user",
+          "content": "The battery lasts forever, but the screen scratches if you look at it wrong."
+        }
+      ],
+      "text": "Mixed",
+      "input_tokens": 63,
+      "output_tokens": 6,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 47,
+      "local_count_output": 1
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "Extract the fields name, date, amount, and currency. Return only JSON."
+        },
+        {
+          "role": "user",
+          "content": "Hi, this is Dana Ortiz. I paid the invoice on March 3rd 2025, a total of 1,240.50 euros, via bank transfer. Please confirm receipt."
+        }
+      ],
+      "text": "```json\n{\n  \"name\": \"Dana Ortiz\",\n  \"date\": \"2025-03-03\",\n  \"amount\": 1240.50,\n  \"currency\": \"EUR\"\n}\n```",
+      "input_tokens": 93,
+      "output_tokens": 61,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 71,
+      "local_count_output": 51
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Summarize the following in three sentences:\n\nThe Great Barrier Reef is the world's largest coral reef system, composed of over 2,900 individual reefs and 900 islands stretching over 2,300 kilometres. It is located in the Coral Sea, off the coast of Queensland, Australia, and can be seen from outer space. The reef is built by billions of tiny organisms known as coral polyps and supports a wide diversity of life. It was selected as a World Heritage Site in 1981. Climate change, pollution, crown-of-thorns starfish outbreaks and fishing are the primary threats to its health, with mass bleaching events in 2016, 2017, 2020, 2022 and 2024 damaging large portions of shallow-water coral. Tourism to the reef generates billions of dollars annually for the Australian economy."
+        }
+      ],
+      "text": "The Great Barrier Reef, the world's largest coral reef system, stretches over 2,300 kilometres off Queensland, Australia, and is made up of more than 2,900 individual reefs and 900 islands built by billions of coral polyps. Designated a World Heritage Site in 1981, it supports a vast diversity of marine life and generates billions of dollars annually through tourism. However, climate change, pollution, crown-of-thorns starfish outbreaks, and fishing threaten its health, with repeated mass bleaching events since 2016 damaging large areas of shallow-water coral.",
+      "input_tokens": 273,
+      "output_tokens": 194,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 196,
+      "local_count_output": 127
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python function that merges overlapping intervals in a list, with a brief explanation."
+        }
+      ],
+      "text": "Here's a function that merges overlapping intervals:\n\n```python\ndef merge_intervals(intervals):\n    \"\"\"\n    Merge all overlapping intervals in a list.\n\n    Args:\n        intervals: A list of [start, end] pairs.\n\n    Returns:\n        A list of merged, non-overlapping intervals sorted by start.\n    \"\"\"\n    if not intervals:\n        return []\n\n    # Sort by start time so overlapping intervals are adjacent\n    sorted_intervals = sorted(intervals, key=lambda x: x[0])\n    merged = [sorted_intervals[0][:]]  # copy the first interval\n\n    for start, end in sorted_intervals[1:]:\n        last_end = merged[-1][1]\n        if start <= last_end:\n            # Overlap: extend the last merged interval if needed\n            merged[-1][1] = max(last_end, end)\n        else:\n            # No overlap: start a new interval\n            merged.append([start, end])\n\n    return merged\n\n\n# Example usage\nprint(merge_intervals([[1, 3], [2, 6], [8, 10], [15, 18]]))\n# [[1, 6], [8, 10], [15, 18]]\n\nprint(merge_intervals([[1, 4], [4, 5]]))\n# [[1, 5]]  (touching intervals count as overlapping)\n```\n\n**How it works:**\n\n1. **Sort by start time.** Once sorted, any interval that overlaps the current one must begin before the current one ends, so overlaps are always between neighbors in the list.\n2. **Walk through the sorted list**, keeping a running list of merged results.\n3. **Compare each interval to the last merged one.** If it starts at or before the last merged interval's end, they overlap, so extend that end to the larger of the two ends. Otherwise, it's a fresh interval and gets appended.\n\nThe time complexity is O(n log n) due to the sort, and the extra space is O(n) for the output.",
+      "input_tokens": 34,
+      "output_tokens": 622,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 24,
+      "local_count_output": 428
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Explain how TCP congestion control works to a new-grad engineer."
+        }
+      ],
+      "text": "TCP congestion control solves a basic problem: the network is shared, and nobody tells a sender how much capacity is available. The sender has to discover it by probing and by watching for signs that it's pushing too hard. Everything below follows from that.\n\n**The core idea: the congestion window**\n\nA TCP sender maintains a congestion window, `cwnd`, which is the amount of unacknowledged data it allows in flight at once. The sender transmits at most `min(cwnd, receiver's advertised window)` bytes beyond what has been acknowledged. The receiver's window handles the receiver's capacity; `cwnd` handles the network's capacity. Congestion control is the logic that adjusts `cwnd` over time.\n\n**Feedback: loss and ACKs**\n\nThe sender learns about the network from ACKs. Each ACK means a segment got through, and ACKs arriving at a steady clip tell the sender roughly how fast the path drains. A missing ACK, detected by a retransmission timeout or by duplicate ACKs, is the signal that something was dropped, which usually means a queue overflowed somewhere. Classic TCP treats loss as the signal of congestion.\n\n**The two phases**\n\n1. **Slow start.** Despite the name, this is exponential growth. Starting from a small `cwnd` (historically 1 segment, now often 10), the sender increases `cwnd` by one segment for every ACK received. Since each round trip delivers a window's worth of ACKs, the window roughly doubles per RTT. This finds the available bandwidth quickly.\n\n2. **Congestion avoidance.** Once `cwnd` passes a threshold (`ssthresh`), growth becomes linear: roughly one segment per RTT. The sender is now cautiously probing for extra capacity.\n\n**Reacting to loss: AIMD**\n\nWhen loss occurs, the sender cuts its window. The classic rule is **Additive Increase, Multiplicative Decrease**: add about one segment per RTT while things are fine, halve `cwnd` on loss. This asymmetry matters. Multiplicative decrease sheds load fast when the network is overloaded. Additive increase keeps probing gently. The result is a sawtooth pattern: the window climbs until a loss, drops by half, and climbs again.\n\nFairness falls out of AIMD. Flows that send more get cut proportionally more on each loss, and the additive increase is the same for everyone, so competing flows converge toward equal shares. Chiu and Jain analyzed this in 1989, and it's a good thing to read if you want the theory.\n\n**Fast retransmit and fast recovery**\n\nWaiting for a timeout is slow, so TCP watches for three duplicate ACKs. Three duplicates signal a single lost segment while later segments are still arriving. The sender retransmits immediately (fast retransmit) and halves `cwnd` without dropping back to slow start (fast recovery), since the ACKs show packets are still flowing.\n\n**Modern variants**\n\n- **CUBIC** (the Linux default for years) replaces linear growth with a cubic function anchored at the window size where the last loss happened. It grows fast",
+      "input_tokens": 28,
+      "output_tokens": 1024,
+      "truncated": true,
+      "stop_reason": "max_tokens",
+      "local_count_input": 21,
+      "local_count_output": 646
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Give me 10 name ideas for a quiet neighborhood coffee shop."
+        }
+      ],
+      "text": "1. Hushed Grounds\n2. The Quiet Cup\n3. Still Water Coffee\n4. Porchlight Coffee Co.\n5. Sleepy Oak Coffee\n6. The Corner Hearth\n7. Stillhouse Coffee\n8. Second Street Brew\n9. The Unhurried Bean\n10. Hollow Maple Coffee",
+      "input_tokens": 32,
+      "output_tokens": 124,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 21,
+      "local_count_output": 67
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Translate into Spanish and German: 'The meeting has been moved to Thursday afternoon because half the team is traveling on Wednesday.'"
+        }
+      ],
+      "text": "**Spanish:**\n\"La reuni\u00f3n se ha trasladado al jueves por la tarde porque la mitad del equipo viaja el mi\u00e9rcoles.\"\n\n**German:**\n\"Das Meeting wurde auf Donnerstagnachmittag verschoben, weil die H\u00e4lfte des Teams am Mittwoch unterwegs ist.\"",
+      "input_tokens": 52,
+      "output_tokens": 111,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 31,
+      "local_count_output": 68
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "I want to learn linear algebra in 4 weeks for machine learning. Make me a study plan."
+        }
+      ],
+      "text": "Here's a 4-week plan focused on the linear algebra you'll use in machine learning. It assumes you can do basic algebra and are comfortable with functions. Aim for about 90 to 120 minutes a day, five or six days a week.\n\n## Week 1: Vectors, Matrices, and Operations\n\n**Goals:** Think of vectors as points and arrows, and matrices as data tables and linear maps.\n\n- Vectors: addition, scalar multiplication, dot product, norms (L1, L2)\n- Matrices: shapes, addition, transpose, and matrix multiplication (learn this one thoroughly)\n- Special matrices: identity, diagonal, symmetric\n\n**Key ML connection:** A dataset is a matrix (rows are samples, columns are features). A linear layer computes `y = Wx + b`.\n\n**Resources:** 3Blue1Brown's *Essence of Linear Algebra* (YouTube, chapters 1\u20133), then Gilbert Strang's MIT 18.06 lectures 1\u20133.\n\n**Practice:** Implement dot products and matrix multiplication by hand for 2\u00d72 and 2\u00d73 cases, then check your work in NumPy.\n\n## Week 2: Linear Systems, Inverses, and Geometry of Transformations\n\n**Goals:** Understand matrices as transformations that stretch, rotate, and project space.\n\n- Solving Ax = b with Gaussian elimination (conceptually; you won't do large ones by hand)\n- Matrix inverse and when it doesn't exist\n- Linear independence, span, basis, rank\n- Column space and null space\n\n**Key ML connection:** Least squares regression is solving an overdetermined system. Rank tells you about redundant features.\n\n**Resources:** 3Blue1Brown chapters 4\u20137, then Strang lectures 4\u20138 (skim the elimination details if they feel slow).\n\n**Practice:** Solve a small least-squares problem by hand, then with `np.linalg.lstsq`.\n\n## Week 3: Eigenvalues, Eigenvectors, and Symmetric Matrices\n\n**Goals:** Find the directions a matrix only scales, and understand why this matters.\n\n- Eigenvalues and eigenvectors: definition and computation for small matrices\n- Diagonalization\n- Symmetric matrices: real eigenvalues, orthogonal eigenvectors\n- Quadratic forms and definiteness (briefly)\n\n**Key ML connection:** PCA is eigendecomposition of the covariance matrix. Covariance matrices are symmetric and positive semidefinite. The Hessian of a loss function determines curvature and convergence.\n\n**Resources:** 3Blue1Brown chapters 13\u201314, then Strang lectures 21\u201323.\n\n**Practice:** Compute eigenvalues of a 2\u00d72 matrix by hand. Then implement PCA on a small dataset (e.g., Iris) using `np.linalg.eigh` and compare to `sklearn.decomposition.PCA`.\n\n## Week 4: SVD, Orthogonality, and Applications\n\n**Goals:** Learn the most useful decompos",
+      "input_tokens": 37,
+      "output_tokens": 1024,
+      "truncated": true,
+      "stop_reason": "max_tokens",
+      "local_count_input": 27,
+      "local_count_output": 619
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "I want to learn linear algebra in 4 weeks for machine learning. Make me a study plan."
+        },
+        {
+          "role": "assistant",
+          "content": "Here's a 4-week plan focused on the linear algebra you'll use in machine learning. It assumes you can do basic algebra and are comfortable with functions. Aim for about 90 to 120 minutes a day, five or six days a week.\n\n## Week 1: Vectors, Matrices, and Operations\n\n**Goals:** Think of vectors as points and arrows, and matrices as data tables and linear maps.\n\n- Vectors: addition, scalar multiplication, dot product, norms (L1, L2)\n- Matrices: shapes, addition, transpose, and matrix multiplication (learn this one thoroughly)\n- Special matrices: identity, diagonal, symmetric\n\n**Key ML connection:** A dataset is a matrix (rows are samples, columns are features). A linear layer computes `y = Wx + b`.\n\n**Resources:** 3Blue1Brown's *Essence of Linear Algebra* (YouTube, chapters 1\u20133), then Gilbert Strang's MIT 18.06 lectures 1\u20133.\n\n**Practice:** Implement dot products and matrix multiplication by hand for 2\u00d72 and 2\u00d73 cases, then check your work in NumPy.\n\n## Week 2: Linear Systems, Inverses, and Geometry of Transformations\n\n**Goals:** Understand matrices as transformations that stretch, rotate, and project space.\n\n- Solving Ax = b with Gaussian elimination (conceptually; you won't do large ones by hand)\n- Matrix inverse and when it doesn't exist\n- Linear independence, span, basis, rank\n- Column space and null space\n\n**Key ML connection:** Least squares regression is solving an overdetermined system. Rank tells you about redundant features.\n\n**Resources:** 3Blue1Brown chapters 4\u20137, then Strang lectures 4\u20138 (skim the elimination details if they feel slow).\n\n**Practice:** Solve a small least-squares problem by hand, then with `np.linalg.lstsq`.\n\n## Week 3: Eigenvalues, Eigenvectors, and Symmetric Matrices\n\n**Goals:** Find the directions a matrix only scales, and understand why this matters.\n\n- Eigenvalues and eigenvectors: definition and computation for small matrices\n- Diagonalization\n- Symmetric matrices: real eigenvalues, orthogonal eigenvectors\n- Quadratic forms and definiteness (briefly)\n\n**Key ML connection:** PCA is eigendecomposition of the covariance matrix. Covariance matrices are symmetric and positive semidefinite. The Hessian of a loss function determines curvature and convergence.\n\n**Resources:** 3Blue1Brown chapters 13\u201314, then Strang lectures 21\u201323.\n\n**Practice:** Compute eigenvalues of a 2\u00d72 matrix by hand. Then implement PCA on a small dataset (e.g., Iris) using `np.linalg.eigh` and compare to `sklearn.decomposition.PCA`.\n\n## Week 4: SVD, Orthogonality, and Applications\n\n**Goals:** Learn the most useful decompos"
+        },
+        {
+          "role": "user",
+          "content": "Make week 2 more detailed."
+        }
+      ],
+      "text": "## Week 2: Linear Systems, Inverses, and the Geometry of Transformations\n\n**Goal for the week:** Move from \"matrices are tables of numbers\" to \"matrices are functions that move vectors around.\" By the end, you should be able to look at a system of equations and know whether it has one solution, infinitely many, or none, and explain why in terms of columns and rank.\n\n### Day 1: Matrices as Linear Maps\n\n**Concepts**\n- A matrix-vector product Ax is a linear combination of the columns of A, weighted by the entries of x. This is the single most important reframing of the week.\n- Linearity: T(u + v) = T(u) + T(v) and T(cu) = cT(u). Check whether simple functions (rotation, scaling, shifting by a constant) satisfy these. The shift fails, which is why bias terms in neural networks make a layer affine rather than strictly linear.\n- Common 2D transformations: scaling, rotation, reflection, shear. Know their matrices.\n\n**Resources:** 3Blue1Brown chapter 3 (linear transformations) if you haven't watched it, then Strang lecture 2.\n\n**Practice:**\n- Write the 2\u00d72 matrix for a 45\u00b0 rotation and apply it to (1, 0) and (0, 1) by hand. Plot the results.\n- Compute Ax as a column combination for a 3\u00d72 matrix and confirm it matches the row-by-row dot product calculation.\n\n### Day 2: Solving Ax = b and Gaussian Elimination\n\n**Concepts**\n- Write a linear system as an augmented matrix [A | b].\n- Row operations (swap, scale, add a multiple) preserve the solution set.\n- Reduced row echelon form (RREF) and pivot columns. Pivots tell you which variables are determined and which are free.\n- Back-substitution once the system is in row echelon form.\n\n**Resources:** Strang lecture 2 (continued) and lecture 3. Khan Academy's \"Gaussian elimination\" videos if you want a slower walkthrough.\n\n**Practice:**\n- Solve a 3\u00d73 system by hand using elimination. Verify with `np.linalg.solve`.\n- Take one system that has a free variable and find the full solution set in the form x = x_p + t\u00b7v.\n\n### Day 3: Inverses\n\n**Concepts**\n- A\u207b\u00b9 exists exactly when A is square and has full rank (n pivots). Equivalently, A is invertible iff its columns are linearly independent and span the space.\n- Computing an inverse by row-reducing [A | I] to [I | A\u207b\u00b9].\n- Properties: (AB)\u207b\u00b9 = B\u207b\u00b9A\u207b\u00b9, (A\u207b\u00b9)\u207b\u00b9 = A.\n- Why you almost never compute inverses in practice: solving Ax = b directly is faster and more numerically stable. Know this so you don't reach for `inv` in ML code by habit.\n\n**Resources:** Strang lecture 3 (second half). 3Blue1Brown has no direct video on this, so rely on Strang here.\n\n**Practice:**\n- Invert a 2\u00d72 matrix by hand",
+      "input_tokens": 1078,
+      "output_tokens": 1024,
+      "truncated": true,
+      "stop_reason": "max_tokens",
+      "local_count_input": 661,
+      "local_count_output": 679
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "I want to learn linear algebra in 4 weeks for machine learning. Make me a study plan."
+        },
+        {
+          "role": "assistant",
+          "content": "Here's a 4-week plan focused on the linear algebra you'll use in machine learning. It assumes you can do basic algebra and are comfortable with functions. Aim for about 90 to 120 minutes a day, five or six days a week.\n\n## Week 1: Vectors, Matrices, and Operations\n\n**Goals:** Think of vectors as points and arrows, and matrices as data tables and linear maps.\n\n- Vectors: addition, scalar multiplication, dot product, norms (L1, L2)\n- Matrices: shapes, addition, transpose, and matrix multiplication (learn this one thoroughly)\n- Special matrices: identity, diagonal, symmetric\n\n**Key ML connection:** A dataset is a matrix (rows are samples, columns are features). A linear layer computes `y = Wx + b`.\n\n**Resources:** 3Blue1Brown's *Essence of Linear Algebra* (YouTube, chapters 1\u20133), then Gilbert Strang's MIT 18.06 lectures 1\u20133.\n\n**Practice:** Implement dot products and matrix multiplication by hand for 2\u00d72 and 2\u00d73 cases, then check your work in NumPy.\n\n## Week 2: Linear Systems, Inverses, and Geometry of Transformations\n\n**Goals:** Understand matrices as transformations that stretch, rotate, and project space.\n\n- Solving Ax = b with Gaussian elimination (conceptually; you won't do large ones by hand)\n- Matrix inverse and when it doesn't exist\n- Linear independence, span, basis, rank\n- Column space and null space\n\n**Key ML connection:** Least squares regression is solving an overdetermined system. Rank tells you about redundant features.\n\n**Resources:** 3Blue1Brown chapters 4\u20137, then Strang lectures 4\u20138 (skim the elimination details if they feel slow).\n\n**Practice:** Solve a small least-squares problem by hand, then with `np.linalg.lstsq`.\n\n## Week 3: Eigenvalues, Eigenvectors, and Symmetric Matrices\n\n**Goals:** Find the directions a matrix only scales, and understand why this matters.\n\n- Eigenvalues and eigenvectors: definition and computation for small matrices\n- Diagonalization\n- Symmetric matrices: real eigenvalues, orthogonal eigenvectors\n- Quadratic forms and definiteness (briefly)\n\n**Key ML connection:** PCA is eigendecomposition of the covariance matrix. Covariance matrices are symmetric and positive semidefinite. The Hessian of a loss function determines curvature and convergence.\n\n**Resources:** 3Blue1Brown chapters 13\u201314, then Strang lectures 21\u201323.\n\n**Practice:** Compute eigenvalues of a 2\u00d72 matrix by hand. Then implement PCA on a small dataset (e.g., Iris) using `np.linalg.eigh` and compare to `sklearn.decomposition.PCA`.\n\n## Week 4: SVD, Orthogonality, and Applications\n\n**Goals:** Learn the most useful decompos"
+        },
+        {
+          "role": "user",
+          "content": "Make week 2 more detailed."
+        },
+        {
+          "role": "assistant",
+          "content": "## Week 2: Linear Systems, Inverses, and the Geometry of Transformations\n\n**Goal for the week:** Move from \"matrices are tables of numbers\" to \"matrices are functions that move vectors around.\" By the end, you should be able to look at a system of equations and know whether it has one solution, infinitely many, or none, and explain why in terms of columns and rank.\n\n### Day 1: Matrices as Linear Maps\n\n**Concepts**\n- A matrix-vector product Ax is a linear combination of the columns of A, weighted by the entries of x. This is the single most important reframing of the week.\n- Linearity: T(u + v) = T(u) + T(v) and T(cu) = cT(u). Check whether simple functions (rotation, scaling, shifting by a constant) satisfy these. The shift fails, which is why bias terms in neural networks make a layer affine rather than strictly linear.\n- Common 2D transformations: scaling, rotation, reflection, shear. Know their matrices.\n\n**Resources:** 3Blue1Brown chapter 3 (linear transformations) if you haven't watched it, then Strang lecture 2.\n\n**Practice:**\n- Write the 2\u00d72 matrix for a 45\u00b0 rotation and apply it to (1, 0) and (0, 1) by hand. Plot the results.\n- Compute Ax as a column combination for a 3\u00d72 matrix and confirm it matches the row-by-row dot product calculation.\n\n### Day 2: Solving Ax = b and Gaussian Elimination\n\n**Concepts**\n- Write a linear system as an augmented matrix [A | b].\n- Row operations (swap, scale, add a multiple) preserve the solution set.\n- Reduced row echelon form (RREF) and pivot columns. Pivots tell you which variables are determined and which are free.\n- Back-substitution once the system is in row echelon form.\n\n**Resources:** Strang lecture 2 (continued) and lecture 3. Khan Academy's \"Gaussian elimination\" videos if you want a slower walkthrough.\n\n**Practice:**\n- Solve a 3\u00d73 system by hand using elimination. Verify with `np.linalg.solve`.\n- Take one system that has a free variable and find the full solution set in the form x = x_p + t\u00b7v.\n\n### Day 3: Inverses\n\n**Concepts**\n- A\u207b\u00b9 exists exactly when A is square and has full rank (n pivots). Equivalently, A is invertible iff its columns are linearly independent and span the space.\n- Computing an inverse by row-reducing [A | I] to [I | A\u207b\u00b9].\n- Properties: (AB)\u207b\u00b9 = B\u207b\u00b9A\u207b\u00b9, (A\u207b\u00b9)\u207b\u00b9 = A.\n- Why you almost never compute inverses in practice: solving Ax = b directly is faster and more numerically stable. Know this so you don't reach for `inv` in ML code by habit.\n\n**Resources:** Strang lecture 3 (second half). 3Blue1Brown has no direct video on this, so rely on Strang here.\n\n**Practice:**\n- Invert a 2\u00d72 matrix by hand"
+        },
+        {
+          "role": "user",
+          "content": "Now compress the whole plan into 5 bullet points."
+        }
+      ],
+      "text": "- **Week 1 (Vectors and matrices):** Learn vector operations, dot products, norms, matrix multiplication, and special matrix types, framing datasets as matrices and linear layers as Wx + b.\n- **Week 2 (Linear systems and transformations):** Treat matrices as linear maps, solve Ax = b with Gaussian elimination, and understand inverses, rank, span, and null space.\n- **Week 3 (Eigen-stuff):** Compute eigenvalues and eigenvectors, learn diagonalization and symmetric matrices, and connect them to PCA and loss-function curvature.\n- **Week 4 (SVD and applications):** Study the singular value decomposition, orthogonality, and their uses in dimensionality reduction, least squares, and low-rank approximation.\n- **Throughout:** Spend 90 to 120 minutes a day, five or six days a week, pairing 3Blue1Brown and MIT 18.06 (Strang) videos with NumPy implementations to check your hand calculations.",
+      "input_tokens": 2126,
+      "output_tokens": 343,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 1359,
+      "local_count_output": 209
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a concise senior Python reviewer."
+        },
+        {
+          "role": "user",
+          "content": "Why does this return the wrong result?\n\ndef average(xs):\n    total = 0\n    for x in xs:\n        total =+ x\n    return total / len(xs)"
+        }
+      ],
+      "text": "The bug is on the line `total =+ x`. In Python, `=+` is not an augmented assignment; it parses as `total = +x`, which simply assigns the value of `x` (unary plus applied to `x`) to `total`. So on each iteration `total` is overwritten rather than accumulated, and at the end it holds only the last element.\n\nFix it with `+=`:\n\n```python\ndef average(xs):\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nOr use the built-in:\n\n```python\ndef average(xs):\n    return sum(xs) / len(xs)\n```\n\nNote also that the function will raise `ZeroDivisionError` on an empty list; you may want to handle that case explicitly.",
+      "input_tokens": 71,
+      "output_tokens": 237,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 56,
+      "local_count_output": 170
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a concise senior Python reviewer."
+        },
+        {
+          "role": "user",
+          "content": "Why does this return the wrong result?\n\ndef average(xs):\n    total = 0\n    for x in xs:\n        total =+ x\n    return total / len(xs)"
+        },
+        {
+          "role": "assistant",
+          "content": "The bug is on the line `total =+ x`. In Python, `=+` is not an augmented assignment; it parses as `total = +x`, which simply assigns the value of `x` (unary plus applied to `x`) to `total`. So on each iteration `total` is overwritten rather than accumulated, and at the end it holds only the last element.\n\nFix it with `+=`:\n\n```python\ndef average(xs):\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nOr use the built-in:\n\n```python\ndef average(xs):\n    return sum(xs) / len(xs)\n```\n\nNote also that the function will raise `ZeroDivisionError` on an empty list; you may want to handle that case explicitly."
+        },
+        {
+          "role": "user",
+          "content": "Fix it and also handle the empty list."
+        }
+      ],
+      "text": "```python\ndef average(xs):\n    if not xs:\n        raise ValueError(\"average() requires at least one element\")\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nI chose to raise a `ValueError` rather than return a default like `0` or `None`, since an average of nothing is undefined and returning a placeholder can hide bugs. If your callers expect a different behavior, let me know and I'll adjust it.",
+      "input_tokens": 325,
+      "output_tokens": 146,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 243,
+      "local_count_output": 104
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a concise senior Python reviewer."
+        },
+        {
+          "role": "user",
+          "content": "Why does this return the wrong result?\n\ndef average(xs):\n    total = 0\n    for x in xs:\n        total =+ x\n    return total / len(xs)"
+        },
+        {
+          "role": "assistant",
+          "content": "The bug is on the line `total =+ x`. In Python, `=+` is not an augmented assignment; it parses as `total = +x`, which simply assigns the value of `x` (unary plus applied to `x`) to `total`. So on each iteration `total` is overwritten rather than accumulated, and at the end it holds only the last element.\n\nFix it with `+=`:\n\n```python\ndef average(xs):\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nOr use the built-in:\n\n```python\ndef average(xs):\n    return sum(xs) / len(xs)\n```\n\nNote also that the function will raise `ZeroDivisionError` on an empty list; you may want to handle that case explicitly."
+        },
+        {
+          "role": "user",
+          "content": "Fix it and also handle the empty list."
+        },
+        {
+          "role": "assistant",
+          "content": "```python\ndef average(xs):\n    if not xs:\n        raise ValueError(\"average() requires at least one element\")\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nI chose to raise a `ValueError` rather than return a default like `0` or `None`, since an average of nothing is undefined and returning a placeholder can hide bugs. If your callers expect a different behavior, let me know and I'll adjust it."
+        },
+        {
+          "role": "user",
+          "content": "Write two pytest tests for the fixed version."
+        }
+      ],
+      "text": "```python\nimport pytest\n\nfrom average import average\n\n\ndef test_average_returns_mean_of_values():\n    assert average([1, 2, 3, 4]) == 2.5\n\n\ndef test_average_empty_list_raises_value_error():\n    with pytest.raises(ValueError):\n        average([])\n```\n\nThese assume the function lives in `average.py`; adjust the import to match your module name.",
+      "input_tokens": 490,
+      "output_tokens": 119,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 364,
+      "local_count_output": 79
+    }
+  ]
+}

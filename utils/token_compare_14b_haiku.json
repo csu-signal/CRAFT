@@ -1,0 +1,484 @@
+{
+  "summary": {
+    "api_model": "claude-haiku-5-5",
+    "examples": 10,
+    "calls": 14,
+    "max_tokens": 2048,
+    "input_tokens": {
+      "est": 3689,
+      "api": 6956,
+      "ratio": 0.53
+    },
+    "output_tokens": {
+      "est": 4321,
+      "api": 7283,
+      "ratio": 0.593
+    },
+    "input_tokenizer_ratio": 0.666,
+    "output_tokenizer_ratio": 0.651,
+    "output_length_ratio": 0.911,
+    "truncated_calls": {
+      "est": 0,
+      "api": 1
+    },
+    "per_example_total_ratio": {
+      "min": 0.477,
+      "median": 0.731,
+      "max": 0.935
+    }
+  },
+  "examples": [
+    {
+      "id": "fact_qa",
+      "calls": 1,
+      "est_input": 21,
+      "est_output": 204,
+      "est_truncated": 0,
+      "api_input": 27,
+      "api_output": 281,
+      "api_truncated": 0
+    },
+    {
+      "id": "classify",
+      "calls": 1,
+      "est_input": 47,
+      "est_output": 1,
+      "est_truncated": 0,
+      "api_input": 63,
+      "api_output": 6,
+      "api_truncated": 0
+    },
+    {
+      "id": "json_extract",
+      "calls": 1,
+      "est_input": 71,
+      "est_output": 48,
+      "est_truncated": 0,
+      "api_input": 93,
+      "api_output": 61,
+      "api_truncated": 0
+    },
+    {
+      "id": "summarize",
+      "calls": 1,
+      "est_input": 196,
+      "est_output": 116,
+      "est_truncated": 0,
+      "api_input": 273,
+      "api_output": 218,
+      "api_truncated": 0
+    },
+    {
+      "id": "code",
+      "calls": 1,
+      "est_input": 24,
+      "est_output": 573,
+      "est_truncated": 0,
+      "api_input": 34,
+      "api_output": 616,
+      "api_truncated": 0
+    },
+    {
+      "id": "explain",
+      "calls": 1,
+      "est_input": 21,
+      "est_output": 705,
+      "est_truncated": 0,
+      "api_input": 28,
+      "api_output": 1339,
+      "api_truncated": 0
+    },
+    {
+      "id": "brainstorm",
+      "calls": 1,
+      "est_input": 21,
+      "est_output": 122,
+      "est_truncated": 0,
+      "api_input": 32,
+      "api_output": 121,
+      "api_truncated": 0
+    },
+    {
+      "id": "translate",
+      "calls": 1,
+      "est_input": 31,
+      "est_output": 69,
+      "est_truncated": 0,
+      "api_input": 52,
+      "api_output": 112,
+      "api_truncated": 0
+    },
+    {
+      "id": "multi_turn_plan",
+      "calls": 3,
+      "est_input": 2577,
+      "est_output": 1873,
+      "est_truncated": 0,
+      "api_input": 5367,
+      "api_output": 3971,
+      "api_truncated": 1
+    },
+    {
+      "id": "multi_turn_debug",
+      "calls": 3,
+      "est_input": 680,
+      "est_output": 610,
+      "est_truncated": 0,
+      "api_input": 987,
+      "api_output": 558,
+      "api_truncated": 0
+    }
+  ],
+  "est_calls": [
+    {
+      "input_tokens": 21,
+      "output_tokens": 204,
+      "truncated": false
+    },
+    {
+      "input_tokens": 47,
+      "output_tokens": 1,
+      "truncated": false
+    },
+    {
+      "input_tokens": 71,
+      "output_tokens": 48,
+      "truncated": false
+    },
+    {
+      "input_tokens": 196,
+      "output_tokens": 116,
+      "truncated": false
+    },
+    {
+      "input_tokens": 24,
+      "output_tokens": 573,
+      "truncated": false
+    },
+    {
+      "input_tokens": 21,
+      "output_tokens": 705,
+      "truncated": false
+    },
+    {
+      "input_tokens": 21,
+      "output_tokens": 122,
+      "truncated": false
+    },
+    {
+      "input_tokens": 31,
+      "output_tokens": 69,
+      "truncated": false
+    },
+    {
+      "input_tokens": 27,
+      "output_tokens": 877,
+      "truncated": false
+    },
+    {
+      "input_tokens": 919,
+      "output_tokens": 693,
+      "truncated": false
+    },
+    {
+      "input_tokens": 1631,
+      "output_tokens": 303,
+      "truncated": false
+    },
+    {
+      "input_tokens": 56,
+      "output_tokens": 115,
+      "truncated": false
+    },
+    {
+      "input_tokens": 188,
+      "output_tokens": 231,
+      "truncated": false
+    },
+    {
+      "input_tokens": 436,
+      "output_tokens": 264,
+      "truncated": false
+    }
+  ],
+  "api_calls": [
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "What is the capital of Australia, and why isn't it Sydney?"
+        }
+      ],
+      "text": "The capital of Australia is **Canberra**.\n\nSydney isn't the capital because of a compromise made when the country was federated in 1901. Australia's six colonies had been operating as separate entities, and both Sydney and Melbourne were major rival cities, each wanting to be the national capital. Neither would accept the other, so the solution was to create an entirely new city as the capital, located between them. Parliament sat in Melbourne in the meantime, while Canberra was built from scratch.\n\nThe site for Canberra was chosen in 1908, and an international design competition was held, which American architects Walter Burley Griffin and Marion Mahony Griffin won. Construction was slow, and Parliament didn't officially move to Canberra until 1927.\n\nSo Canberra was purpose-built as a planned capital, which is also why it's sometimes less well known than Sydney or Melbourne.",
+      "input_tokens": 27,
+      "output_tokens": 281,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 21,
+      "local_count_output": 181
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "Classify the sentiment of the review as positive, negative, or mixed. Answer with one word."
+        },
+        {
+          "role": "user",
+          "content": "The battery lasts forever, but the screen scratches if you look at it wrong."
+        }
+      ],
+      "text": "Mixed",
+      "input_tokens": 63,
+      "output_tokens": 6,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 47,
+      "local_count_output": 1
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "Extract the fields name, date, amount, and currency. Return only JSON."
+        },
+        {
+          "role": "user",
+          "content": "Hi, this is Dana Ortiz. I paid the invoice on March 3rd 2025, a total of 1,240.50 euros, via bank transfer. Please confirm receipt."
+        }
+      ],
+      "text": "```json\n{\n  \"name\": \"Dana Ortiz\",\n  \"date\": \"2025-03-03\",\n  \"amount\": 1240.50,\n  \"currency\": \"EUR\"\n}\n```",
+      "input_tokens": 93,
+      "output_tokens": 61,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 71,
+      "local_count_output": 51
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Summarize the following in three sentences:\n\nThe Great Barrier Reef is the world's largest coral reef system, composed of over 2,900 individual reefs and 900 islands stretching over 2,300 kilometres. It is located in the Coral Sea, off the coast of Queensland, Australia, and can be seen from outer space. The reef is built by billions of tiny organisms known as coral polyps and supports a wide diversity of life. It was selected as a World Heritage Site in 1981. Climate change, pollution, crown-of-thorns starfish outbreaks and fishing are the primary threats to its health, with mass bleaching events in 2016, 2017, 2020, 2022 and 2024 damaging large portions of shallow-water coral. Tourism to the reef generates billions of dollars annually for the Australian economy."
+        }
+      ],
+      "text": "The Great Barrier Reef, the world's largest coral reef system, consists of over 2,900 individual reefs and 900 islands spanning more than 2,300 kilometres off the coast of Queensland, Australia, and was designated a World Heritage Site in 1981. Built by billions of coral polyps and home to a vast diversity of life, it faces serious threats from climate change, pollution, crown-of-thorns starfish outbreaks, and fishing, with repeated mass bleaching events since 2016 damaging large areas of shallow coral. Despite these challenges, the reef remains a major economic asset, generating billions of dollars annually for Australia through tourism.",
+      "input_tokens": 273,
+      "output_tokens": 218,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 196,
+      "local_count_output": 140
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Write a Python function that merges overlapping intervals in a list, with a brief explanation."
+        }
+      ],
+      "text": "Here's a function that merges overlapping intervals:\n\n```python\ndef merge_intervals(intervals):\n    \"\"\"\n    Merge all overlapping intervals in a list.\n\n    Args:\n        intervals: A list of [start, end] pairs.\n\n    Returns:\n        A list of merged, non-overlapping intervals sorted by start.\n    \"\"\"\n    if not intervals:\n        return []\n\n    # Sort by start time so overlapping intervals are adjacent\n    sorted_intervals = sorted(intervals, key=lambda x: x[0])\n\n    merged = [list(sorted_intervals[0])]\n\n    for start, end in sorted_intervals[1:]:\n        last_end = merged[-1][1]\n\n        if start <= last_end:\n            # Overlap: extend the last merged interval if needed\n            merged[-1][1] = max(last_end, end)\n        else:\n            # No overlap: start a new interval\n            merged.append([start, end])\n\n    return merged\n\n\n# Example usage\nprint(merge_intervals([[1, 3], [2, 6], [8, 10], [15, 18]]))\n# [[1, 6], [8, 10], [15, 18]]\n\nprint(merge_intervals([[1, 4], [4, 5]]))\n# [[1, 5]]  (touching intervals count as overlapping)\n```\n\n**How it works:**\n\n1. **Sort** the intervals by their start value. This guarantees that any intervals that could overlap are next to each other in the list.\n2. **Scan** through the sorted list, keeping the most recent merged interval as the reference.\n3. **Compare** each new interval's start to the previous interval's end. If the new start is less than or equal to that end, they overlap, so the merged interval's end becomes the larger of the two ends.\n4. **Append** the interval as a new entry when there's no overlap.\n\nThe time complexity is O(n log n) due to the sort, and the extra space is O(n) for the output.",
+      "input_tokens": 34,
+      "output_tokens": 616,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 24,
+      "local_count_output": 429
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Explain how TCP congestion control works to a new-grad engineer."
+        }
+      ],
+      "text": "TCP congestion control solves a basic problem: the network is shared, and nobody tells senders how much capacity is available or when a link is saturated. Each TCP sender has to figure this out by itself, using only feedback from the network. That feedback is mostly packet loss and acknowledgments.\n\n**The core idea: the congestion window**\n\nA TCP sender maintains a congestion window (cwnd), the number of unacknowledged bytes it's allowed to have in flight. The sender transmits at roughly `cwnd / RTT`. Congestion control is the algorithm that adjusts cwnd up or down over time.\n\nThe sender also respects the receiver's advertised window (flow control), so the effective limit is `min(cwnd, rwnd)`. Flow control protects the receiver; congestion control protects the network.\n\n**The classic algorithm (Reno-style), in phases**\n\n1. **Slow start.** Connections begin with a small cwnd (typically around 10 segments in modern stacks). For every ACK received, cwnd grows by one segment, so cwnd roughly doubles each RTT. Despite the name, this is exponential probing for available bandwidth.\n\n2. **Congestion avoidance.** Once cwnd passes a threshold (ssthresh), growth becomes linear: about one segment per RTT. The sender is now cautiously testing whether there's a little more room.\n\n3. **Loss response.** When loss occurs, the sender cuts its rate:\n   - If it detects loss via **triple duplicate ACKs** (a few ACKs repeating the same sequence number, meaning later packets arrived but one didn't), it does fast retransmit and fast recovery, halving cwnd. The connection keeps flowing.\n   - If it detects loss via a **timeout**, it's assumed more serious. cwnd collapses to one segment and slow start begins again.\n\nThis produces the familiar sawtooth: additive increase, multiplicative decrease (AIMD). Stability comes from that asymmetry. When several flows share a bottleneck, multiplicative decrease pushes them toward a fair split, because the flow with the bigger window loses more in absolute terms each time it backs off.\n\n**Modern variants**\n\n- **CUBIC** (default on Linux for years) replaces linear growth with a cubic function centered on the window size where the last loss happened. It probes aggressively far from that point and gently near it, which suits high-bandwidth, high-latency links better than Reno's linear growth.\n- **BBR** (Google) takes a different approach: instead of treating loss as the signal, it builds a model of the path's bottleneck bandwidth and minimum RTT, and paces sends to match. It avoids filling buffers and causing bufferbloat, though its interaction with shallow buffers and fairness with loss-based flows has been debated.\n- **ECN** lets routers mark packets with congestion signals before dropping them, so senders can slow down without losses.\n\n**Why it matters for you as an engineer**\n\n- Throughput on a single connection is governed by RTT and loss rate, not just link speed. The Mathis approximation gives roughly `throughput \u2248 MSS / (RTT \u00d7 \u221aloss)`, which is why a long-haul link with a tiny loss rate can still be slow.\n- Short-lived connections (small HTTP responses) often never leave slow start, so their performance is dominated by latency, not bandwidth. This is part of why connection reuse, HTTP/2, and larger initial windows matter.\n- Buffers in network gear interact badly with loss-based algorithms: deep buffers delay the loss signal and inflate latency (bufferbloat). Debugging latency spikes under load often leads here.\n- If you ever see unexplained slowness on a clean network, check RTT, retransmission counts (`ss -ti` on Linux shows cwnd and retransmits per connection), and which congestion algorithm is in use.\n\nIf you want to see it happen, run a bulk transfer under `tcpdump` or open `ss -ti` during a download and watch cwnd grow and shrink. Seeing the sawtooth in real data makes the theory stick.",
+      "input_tokens": 28,
+      "output_tokens": 1339,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 21,
+      "local_count_output": 842
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Give me 10 name ideas for a quiet neighborhood coffee shop."
+        }
+      ],
+      "text": "1. The Quiet Cup\n2. Hush & Brew\n3. Still Water Coffee Co.\n4. The Porch Light Caf\u00e9\n5. Slow Morning Coffee\n6. Hearth & Bean\n7. The Corner Nook\n8. Tuckaway Coffee House\n9. Linger Coffee\n10. Stillhouse Coffee Bar",
+      "input_tokens": 32,
+      "output_tokens": 121,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 21,
+      "local_count_output": 68
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Translate into Spanish and German: 'The meeting has been moved to Thursday afternoon because half the team is traveling on Wednesday.'"
+        }
+      ],
+      "text": "**Spanish:**\n\"La reuni\u00f3n se ha cambiado al jueves por la tarde porque la mitad del equipo viaja el mi\u00e9rcoles.\"\n\n**German:**\n\"Die Besprechung wurde auf Donnerstagnachmittag verschoben, weil die H\u00e4lfte des Teams am Mittwoch unterwegs ist.\"",
+      "input_tokens": 52,
+      "output_tokens": 112,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 31,
+      "local_count_output": 69
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "I want to learn linear algebra in 4 weeks for machine learning. Make me a study plan."
+        }
+      ],
+      "text": "Here's a 4-week plan focused on the linear algebra that actually shows up in machine learning. It assumes you can do basic algebra and are comfortable with vectors at a high level. Aim for about 1.5 to 2 hours a day, five or six days a week.\n\n**Week 1: Vectors, Matrices, and Operations**\n- Topics: vectors and their operations, dot product, norms, matrices as data and as transformations, matrix multiplication, transpose, identity and inverse matrices.\n- Why it matters for ML: a dataset is a matrix, a single data point is a row vector, and a neural network layer is a matrix multiplication.\n- Resources: 3Blue1Brown's \"Essence of Linear Algebra\" (first 4 to 6 videos), then Gilbert Strang's MIT 18.06 lectures 1 to 3 or Khan Academy's linear algebra vectors and matrices sections.\n- Practice: implement matrix multiplication by hand for 2x2 and 3x3 examples, then verify with NumPy. Compute dot products and norms of word-embedding-style vectors.\n- Milestone: you can explain why a matrix times a vector is a linear combination of the matrix's columns.\n\n**Week 2: Linear Systems, Inverses, and Determinants**\n- Topics: solving Ax = b, Gaussian elimination, row echelon form, rank, invertibility, determinants (conceptually), linear independence, span, basis.\n- Why it matters for ML: linear regression's closed-form solution comes from solving linear systems, and rank tells you about redundant features and multicollinearity.\n- Resources: 3Blue1Brown \"Inverse matrices, column space and null space\" and \"Determinant,\" then MIT 18.06 lectures 4 to 8.\n- Practice: solve 3x3 systems by elimination, then with `np.linalg.solve`. Fit a linear regression using the normal equations and compare it to scikit-learn.\n- Milestone: you can explain what it means for a feature matrix to be rank-deficient and what that does to a regression.\n\n**Week 3: Eigenvalues, Eigenvectors, and Orthogonality**\n- Topics: eigenvalues and eigenvectors, diagonalization, symmetric matrices, orthogonal vectors and matrices, Gram-Schmidt, projections, least squares.\n- Why it matters for ML: PCA is an eigendecomposition of the covariance matrix, and least squares is projection onto a column space.\n- Resources: 3Blue1Brown \"Eigenvectors and eigenvalues,\" MIT 18.06 lectures 17 to 22 (skim the proofs, focus on intuition).\n- Practice: compute eigendecomposition of a 2x2 covariance matrix by hand, then run PCA from scratch in NumPy on a small dataset and compare with scikit-learn's PCA.\n- Milestone: you can explain why the top principal component is the eigenvector with the largest eigenvalue.\n\n**Week 4: Singular Value Decomposition and Applied ML Connections**\n- Topics: SVD (concept and computation), low-rank approximation, pseudoinverse, the connection between SVD and PCA, matrix calculus basics (gradients of x^T A x and ||Ax - b||^2).\n- Why it matters for ML: SVD underlies recommender systems, dimensionality reduction, LoRA-style low-rank adaptation, and numerically stable least squares.\n- Resources: MIT 18.06 lectures 29 to 30 (SVD), 3Blue1Brown's visual intuition for linear transformations, and Mathematics for Machine Learning by Deisenroth et al., chapters 2, 3, and 10 (free PDF).\n- Practice: compress a grayscale image with truncated SVD at several ranks and plot quality versus storage. Derive the gradient of the least squares loss and check it numerically.\n- Milestone: you can explain how truncated SVD gives the best rank-k approximation of a matrix.\n\n**Daily routine:** 40 minutes watching or reading, 40 minutes on problems by hand, 20 minutes coding in NumPy. Keep a notebook of intuitions in your own words; this is where retention happens.\n\n**Weekly check:** at the end of each week, rederive the key result from memory without notes. If you can't, revisit that week's material before moving on.\n\n**Realistic expectations:** four weeks gets you the working fluency needed to follow ML papers, debug models, and implement core algorithms. Deep theory such as abstract vector spaces and proofs takes longer, and you don't need it for most applied ML work.\n\nIf you tell me your background (programming level, calculus comfort) and how many hours you can commit, I can adjust the pacing.",
+      "input_tokens": 37,
+      "output_tokens": 1577,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 27,
+      "local_count_output": 991
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "I want to learn linear algebra in 4 weeks for machine learning. Make me a study plan."
+        },
+        {
+          "role": "assistant",
+          "content": "Here's a 4-week plan focused on the linear algebra that actually shows up in machine learning. It assumes you can do basic algebra and are comfortable with vectors at a high level. Aim for about 1.5 to 2 hours a day, five or six days a week.\n\n**Week 1: Vectors, Matrices, and Operations**\n- Topics: vectors and their operations, dot product, norms, matrices as data and as transformations, matrix multiplication, transpose, identity and inverse matrices.\n- Why it matters for ML: a dataset is a matrix, a single data point is a row vector, and a neural network layer is a matrix multiplication.\n- Resources: 3Blue1Brown's \"Essence of Linear Algebra\" (first 4 to 6 videos), then Gilbert Strang's MIT 18.06 lectures 1 to 3 or Khan Academy's linear algebra vectors and matrices sections.\n- Practice: implement matrix multiplication by hand for 2x2 and 3x3 examples, then verify with NumPy. Compute dot products and norms of word-embedding-style vectors.\n- Milestone: you can explain why a matrix times a vector is a linear combination of the matrix's columns.\n\n**Week 2: Linear Systems, Inverses, and Determinants**\n- Topics: solving Ax = b, Gaussian elimination, row echelon form, rank, invertibility, determinants (conceptually), linear independence, span, basis.\n- Why it matters for ML: linear regression's closed-form solution comes from solving linear systems, and rank tells you about redundant features and multicollinearity.\n- Resources: 3Blue1Brown \"Inverse matrices, column space and null space\" and \"Determinant,\" then MIT 18.06 lectures 4 to 8.\n- Practice: solve 3x3 systems by elimination, then with `np.linalg.solve`. Fit a linear regression using the normal equations and compare it to scikit-learn.\n- Milestone: you can explain what it means for a feature matrix to be rank-deficient and what that does to a regression.\n\n**Week 3: Eigenvalues, Eigenvectors, and Orthogonality**\n- Topics: eigenvalues and eigenvectors, diagonalization, symmetric matrices, orthogonal vectors and matrices, Gram-Schmidt, projections, least squares.\n- Why it matters for ML: PCA is an eigendecomposition of the covariance matrix, and least squares is projection onto a column space.\n- Resources: 3Blue1Brown \"Eigenvectors and eigenvalues,\" MIT 18.06 lectures 17 to 22 (skim the proofs, focus on intuition).\n- Practice: compute eigendecomposition of a 2x2 covariance matrix by hand, then run PCA from scratch in NumPy on a small dataset and compare with scikit-learn's PCA.\n- Milestone: you can explain why the top principal component is the eigenvector with the largest eigenvalue.\n\n**Week 4: Singular Value Decomposition and Applied ML Connections**\n- Topics: SVD (concept and computation), low-rank approximation, pseudoinverse, the connection between SVD and PCA, matrix calculus basics (gradients of x^T A x and ||Ax - b||^2).\n- Why it matters for ML: SVD underlies recommender systems, dimensionality reduction, LoRA-style low-rank adaptation, and numerically stable least squares.\n- Resources: MIT 18.06 lectures 29 to 30 (SVD), 3Blue1Brown's visual intuition for linear transformations, and Mathematics for Machine Learning by Deisenroth et al., chapters 2, 3, and 10 (free PDF).\n- Practice: compress a grayscale image with truncated SVD at several ranks and plot quality versus storage. Derive the gradient of the least squares loss and check it numerically.\n- Milestone: you can explain how truncated SVD gives the best rank-k approximation of a matrix.\n\n**Daily routine:** 40 minutes watching or reading, 40 minutes on problems by hand, 20 minutes coding in NumPy. Keep a notebook of intuitions in your own words; this is where retention happens.\n\n**Weekly check:** at the end of each week, rederive the key result from memory without notes. If you can't, revisit that week's material before moving on.\n\n**Realistic expectations:** four weeks gets you the working fluency needed to follow ML papers, debug models, and implement core algorithms. Deep theory such as abstract vector spaces and proofs takes longer, and you don't need it for most applied ML work.\n\nIf you tell me your background (programming level, calculus comfort) and how many hours you can commit, I can adjust the pacing."
+        },
+        {
+          "role": "user",
+          "content": "Make week 2 more detailed."
+        }
+      ],
+      "text": "# Week 2: Linear Systems, Inverses, and Determinants\n\n**Goal for the week:** Understand what it means to solve Ax = b, when a solution exists and is unique, and what the rank and determinant of a matrix tell you about it. By the end, you should be able to look at a feature matrix and diagnose whether a regression problem is well-posed.\n\n---\n\n## Day 1: Systems of Linear Equations and Gaussian Elimination\n\n**Concepts**\n- A linear system is a set of equations like 2x + y = 5, x - 3y = -1, written compactly as Ax = b.\n- Three ways to read a system: row picture (each equation is a line or plane), column picture (find the combination of columns of A that gives b), and matrix picture (apply A to x to get b).\n- Augmented matrix [A | b] as the working object.\n- Elementary row operations: swap rows, scale a row, add a multiple of one row to another. These don't change the solution set.\n- Gaussian elimination: reduce to row echelon form, then back-substitute.\n\n**Resources**\n- 3Blue1Brown, \"Linear combinations, span, and basis vectors\" (the column picture)\n- 3Blue1Brown, \"Linear systems\" if available in your playlist version, otherwise Khan Academy \"Systems of equations with elimination\"\n- MIT 18.06 Lecture 1 (Strang) if you haven't watched it yet\n\n**Practice (by hand first)**\n- Solve three 2x2 systems by elimination, then check each answer by substituting back.\n- Solve one 3x3 system by elimination. Write out every row operation explicitly.\n- Find a system with infinitely many solutions and one with none. Describe in words what the row echelon form looks like in each case.\n\n**Code (NumPy)**\n- Build a 3x3 system, solve it with `np.linalg.solve`, and verify with `A @ x`.\n- Deliberately make a singular matrix (for example, make row 3 equal to row 1 plus row 2) and observe what `np.linalg.solve` does.\n\n**Milestone:** You can explain in one paragraph what Gaussian elimination is doing geometrically and why row operations preserve the solution.\n\n---\n\n## Day 2: Span, Linear Independence, Basis, and Rank\n\n**Concepts**\n- Span: the set of all linear combinations of a set of vectors.\n- Linear independence: no vector in the set can be written as a combination of the others. Test: Ax = 0 has only the trivial solution.\n- Basis: a linearly independent set that spans the space.\n- Column space of A: the span of its columns, the set of all b for which Ax = b is solvable.\n- Rank: the number of pivots in row echelon form, equivalently the dimension of the column space. Rank equals the number of linearly independent columns and also the number of linearly independent rows.\n- Full rank: rank equals min(rows, columns).\n\n**Resources**\n- 3Blue1Brown, \"Linear combinations, span, and basis vectors\" (review if needed)\n- MIT 18.06 Lecture 3 (column space and nullspace, rank)\n- Khan Academy \"Linear independence\" and \"Basis of a subspace\"\n\n**Practice**\n- Given four vectors in R^3, decide whether they are linearly independent and identify a basis for their span. Do this by row reducing the matrix whose columns are those vectors.\n- For a 4x3 matrix with one redundant column, find the rank and explain why the column space is a plane, not all of R^4.\n- Take a dataset with 5 features where feature 5 = feature 1 + feature 2. Compute the rank by hand and explain what this means for the data.\n\n**Code**\n- `np.linalg.matrix_rank` on your matrices from the practice problems. Confirm your hand answers.\n- Generate a random 100x5 matrix, then append a column that is a linear combination of two others. Check rank before and after.\n\n**Milestone:** You can explain why a feature matrix with a redundant column has rank less than its number of columns, and why that matters for regression.\n\n---\n\n## Day 3: Null Space, Solution Structure, and the Rank-Nullity Theorem\n\n**Concepts**\n- Null space N(A): all x such that Ax = 0.\n- Rank-nullity theorem: for an m x n matrix A, rank(A) + dim N(A) = n.\n- Structure of solutions: if Ax = b has a solution x_p, then every solution is x_p + n for some n in N(A).\n- Consequence for regression: if the null space is nontrivial, the coefficients are not unique.\n- Existence versus uniqueness: b must lie in the column space for a solution to exist; the null space determines whether it's unique.\n\n**Resources**\n- MIT 18.06 Lecture 3 (nullspace) and Lecture 4 (solving Ax = 0, pivot variables, special solutions)\n- 3Blue1Brown, \"Inverse matrices, column space and null space\" (watch if not yet done)\n\n**Practice**\n- For a 3x4 matrix, compute the null space by row reducing, identify pivot and free variables, and write the special solutions.\n- Verify rank-nullity on three matrices you construct: the rank plus the number of free variables must equal the number of columns.\n- Take the system from Day 1 that had infinitely many solutions and describe its full solution set as x_p + t * n.\n\n**Code**\n- Use `scipy.linalg.null_space` to compute a null space basis and verify that A @ n is approximately zero.\n- Use `np.linalg.lstsq` on an underdetermined system and observe that it returns the minimum-norm solution. Compare it with a solution you construct by hand.\n\n**Milestone:** You can state the rank-nullity theorem, apply it to a matrix, and explain what a nontrivial null space means for a linear regression with more features than data points.\n\n---\n\n## Day 4: Matrix Inverses and Invertibility\n\n**Concepts**\n- A square matrix A is invertible if there exists A^{-1} with A^{-1}A = AA^{-1} = I.\n- Equivalent conditions (all mean the same thing for a square matrix): A is invertible, rank equals n, the null space is {0}, the columns are a basis, Ax = b has a",
+      "input_tokens": 1629,
+      "output_tokens": 2048,
+      "truncated": true,
+      "stop_reason": "max_tokens",
+      "local_count_input": 1033,
+      "local_count_output": 1375
+    },
+    {
+      "messages": [
+        {
+          "role": "user",
+          "content": "I want to learn linear algebra in 4 weeks for machine learning. Make me a study plan."
+        },
+        {
+          "role": "assistant",
+          "content": "Here's a 4-week plan focused on the linear algebra that actually shows up in machine learning. It assumes you can do basic algebra and are comfortable with vectors at a high level. Aim for about 1.5 to 2 hours a day, five or six days a week.\n\n**Week 1: Vectors, Matrices, and Operations**\n- Topics: vectors and their operations, dot product, norms, matrices as data and as transformations, matrix multiplication, transpose, identity and inverse matrices.\n- Why it matters for ML: a dataset is a matrix, a single data point is a row vector, and a neural network layer is a matrix multiplication.\n- Resources: 3Blue1Brown's \"Essence of Linear Algebra\" (first 4 to 6 videos), then Gilbert Strang's MIT 18.06 lectures 1 to 3 or Khan Academy's linear algebra vectors and matrices sections.\n- Practice: implement matrix multiplication by hand for 2x2 and 3x3 examples, then verify with NumPy. Compute dot products and norms of word-embedding-style vectors.\n- Milestone: you can explain why a matrix times a vector is a linear combination of the matrix's columns.\n\n**Week 2: Linear Systems, Inverses, and Determinants**\n- Topics: solving Ax = b, Gaussian elimination, row echelon form, rank, invertibility, determinants (conceptually), linear independence, span, basis.\n- Why it matters for ML: linear regression's closed-form solution comes from solving linear systems, and rank tells you about redundant features and multicollinearity.\n- Resources: 3Blue1Brown \"Inverse matrices, column space and null space\" and \"Determinant,\" then MIT 18.06 lectures 4 to 8.\n- Practice: solve 3x3 systems by elimination, then with `np.linalg.solve`. Fit a linear regression using the normal equations and compare it to scikit-learn.\n- Milestone: you can explain what it means for a feature matrix to be rank-deficient and what that does to a regression.\n\n**Week 3: Eigenvalues, Eigenvectors, and Orthogonality**\n- Topics: eigenvalues and eigenvectors, diagonalization, symmetric matrices, orthogonal vectors and matrices, Gram-Schmidt, projections, least squares.\n- Why it matters for ML: PCA is an eigendecomposition of the covariance matrix, and least squares is projection onto a column space.\n- Resources: 3Blue1Brown \"Eigenvectors and eigenvalues,\" MIT 18.06 lectures 17 to 22 (skim the proofs, focus on intuition).\n- Practice: compute eigendecomposition of a 2x2 covariance matrix by hand, then run PCA from scratch in NumPy on a small dataset and compare with scikit-learn's PCA.\n- Milestone: you can explain why the top principal component is the eigenvector with the largest eigenvalue.\n\n**Week 4: Singular Value Decomposition and Applied ML Connections**\n- Topics: SVD (concept and computation), low-rank approximation, pseudoinverse, the connection between SVD and PCA, matrix calculus basics (gradients of x^T A x and ||Ax - b||^2).\n- Why it matters for ML: SVD underlies recommender systems, dimensionality reduction, LoRA-style low-rank adaptation, and numerically stable least squares.\n- Resources: MIT 18.06 lectures 29 to 30 (SVD), 3Blue1Brown's visual intuition for linear transformations, and Mathematics for Machine Learning by Deisenroth et al., chapters 2, 3, and 10 (free PDF).\n- Practice: compress a grayscale image with truncated SVD at several ranks and plot quality versus storage. Derive the gradient of the least squares loss and check it numerically.\n- Milestone: you can explain how truncated SVD gives the best rank-k approximation of a matrix.\n\n**Daily routine:** 40 minutes watching or reading, 40 minutes on problems by hand, 20 minutes coding in NumPy. Keep a notebook of intuitions in your own words; this is where retention happens.\n\n**Weekly check:** at the end of each week, rederive the key result from memory without notes. If you can't, revisit that week's material before moving on.\n\n**Realistic expectations:** four weeks gets you the working fluency needed to follow ML papers, debug models, and implement core algorithms. Deep theory such as abstract vector spaces and proofs takes longer, and you don't need it for most applied ML work.\n\nIf you tell me your background (programming level, calculus comfort) and how many hours you can commit, I can adjust the pacing."
+        },
+        {
+          "role": "user",
+          "content": "Make week 2 more detailed."
+        },
+        {
+          "role": "assistant",
+          "content": "# Week 2: Linear Systems, Inverses, and Determinants\n\n**Goal for the week:** Understand what it means to solve Ax = b, when a solution exists and is unique, and what the rank and determinant of a matrix tell you about it. By the end, you should be able to look at a feature matrix and diagnose whether a regression problem is well-posed.\n\n---\n\n## Day 1: Systems of Linear Equations and Gaussian Elimination\n\n**Concepts**\n- A linear system is a set of equations like 2x + y = 5, x - 3y = -1, written compactly as Ax = b.\n- Three ways to read a system: row picture (each equation is a line or plane), column picture (find the combination of columns of A that gives b), and matrix picture (apply A to x to get b).\n- Augmented matrix [A | b] as the working object.\n- Elementary row operations: swap rows, scale a row, add a multiple of one row to another. These don't change the solution set.\n- Gaussian elimination: reduce to row echelon form, then back-substitute.\n\n**Resources**\n- 3Blue1Brown, \"Linear combinations, span, and basis vectors\" (the column picture)\n- 3Blue1Brown, \"Linear systems\" if available in your playlist version, otherwise Khan Academy \"Systems of equations with elimination\"\n- MIT 18.06 Lecture 1 (Strang) if you haven't watched it yet\n\n**Practice (by hand first)**\n- Solve three 2x2 systems by elimination, then check each answer by substituting back.\n- Solve one 3x3 system by elimination. Write out every row operation explicitly.\n- Find a system with infinitely many solutions and one with none. Describe in words what the row echelon form looks like in each case.\n\n**Code (NumPy)**\n- Build a 3x3 system, solve it with `np.linalg.solve`, and verify with `A @ x`.\n- Deliberately make a singular matrix (for example, make row 3 equal to row 1 plus row 2) and observe what `np.linalg.solve` does.\n\n**Milestone:** You can explain in one paragraph what Gaussian elimination is doing geometrically and why row operations preserve the solution.\n\n---\n\n## Day 2: Span, Linear Independence, Basis, and Rank\n\n**Concepts**\n- Span: the set of all linear combinations of a set of vectors.\n- Linear independence: no vector in the set can be written as a combination of the others. Test: Ax = 0 has only the trivial solution.\n- Basis: a linearly independent set that spans the space.\n- Column space of A: the span of its columns, the set of all b for which Ax = b is solvable.\n- Rank: the number of pivots in row echelon form, equivalently the dimension of the column space. Rank equals the number of linearly independent columns and also the number of linearly independent rows.\n- Full rank: rank equals min(rows, columns).\n\n**Resources**\n- 3Blue1Brown, \"Linear combinations, span, and basis vectors\" (review if needed)\n- MIT 18.06 Lecture 3 (column space and nullspace, rank)\n- Khan Academy \"Linear independence\" and \"Basis of a subspace\"\n\n**Practice**\n- Given four vectors in R^3, decide whether they are linearly independent and identify a basis for their span. Do this by row reducing the matrix whose columns are those vectors.\n- For a 4x3 matrix with one redundant column, find the rank and explain why the column space is a plane, not all of R^4.\n- Take a dataset with 5 features where feature 5 = feature 1 + feature 2. Compute the rank by hand and explain what this means for the data.\n\n**Code**\n- `np.linalg.matrix_rank` on your matrices from the practice problems. Confirm your hand answers.\n- Generate a random 100x5 matrix, then append a column that is a linear combination of two others. Check rank before and after.\n\n**Milestone:** You can explain why a feature matrix with a redundant column has rank less than its number of columns, and why that matters for regression.\n\n---\n\n## Day 3: Null Space, Solution Structure, and the Rank-Nullity Theorem\n\n**Concepts**\n- Null space N(A): all x such that Ax = 0.\n- Rank-nullity theorem: for an m x n matrix A, rank(A) + dim N(A) = n.\n- Structure of solutions: if Ax = b has a solution x_p, then every solution is x_p + n for some n in N(A).\n- Consequence for regression: if the null space is nontrivial, the coefficients are not unique.\n- Existence versus uniqueness: b must lie in the column space for a solution to exist; the null space determines whether it's unique.\n\n**Resources**\n- MIT 18.06 Lecture 3 (nullspace) and Lecture 4 (solving Ax = 0, pivot variables, special solutions)\n- 3Blue1Brown, \"Inverse matrices, column space and null space\" (watch if not yet done)\n\n**Practice**\n- For a 3x4 matrix, compute the null space by row reducing, identify pivot and free variables, and write the special solutions.\n- Verify rank-nullity on three matrices you construct: the rank plus the number of free variables must equal the number of columns.\n- Take the system from Day 1 that had infinitely many solutions and describe its full solution set as x_p + t * n.\n\n**Code**\n- Use `scipy.linalg.null_space` to compute a null space basis and verify that A @ n is approximately zero.\n- Use `np.linalg.lstsq` on an underdetermined system and observe that it returns the minimum-norm solution. Compare it with a solution you construct by hand.\n\n**Milestone:** You can state the rank-nullity theorem, apply it to a matrix, and explain what a nontrivial null space means for a linear regression with more features than data points.\n\n---\n\n## Day 4: Matrix Inverses and Invertibility\n\n**Concepts**\n- A square matrix A is invertible if there exists A^{-1} with A^{-1}A = AA^{-1} = I.\n- Equivalent conditions (all mean the same thing for a square matrix): A is invertible, rank equals n, the null space is {0}, the columns are a basis, Ax = b has a"
+        },
+        {
+          "role": "user",
+          "content": "Now compress the whole plan into 5 bullet points."
+        }
+      ],
+      "text": "- **Week 1 (Vectors and matrices):** Learn vector operations, dot products, matrix multiplication, and transposes, and see why datasets and neural network layers are matrices.\n- **Week 2 (Linear systems and rank):** Solve Ax = b with Gaussian elimination, and use span, rank, and null space to diagnose redundant features and whether a regression has a unique solution.\n- **Week 3 (Eigen and orthogonality):** Study eigenvalues, eigenvectors, orthogonal projections, and least squares, and connect the eigendecomposition of a covariance matrix to PCA.\n- **Week 4 (SVD and ML applications):** Learn the singular value decomposition and low-rank approximation, and apply them to compression, dimensionality reduction, and gradients of least squares losses.\n- **Daily routine:** Split each session into about 40 minutes of video or reading, 40 minutes of hand problems, and 20 minutes of NumPy coding, and check yourself each week by rederiving the key results from memory.",
+      "input_tokens": 3701,
+      "output_tokens": 346,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 2427,
+      "local_count_output": 214
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a concise senior Python reviewer."
+        },
+        {
+          "role": "user",
+          "content": "Why does this return the wrong result?\n\ndef average(xs):\n    total = 0\n    for x in xs:\n        total =+ x\n    return total / len(xs)"
+        }
+      ],
+      "text": "The bug is on this line:\n\n```python\ntotal =+ x\n```\n\n`=+` is not a compound operator in Python. It parses as `total = +x`, which assigns the unary-plus value of `x` to `total` on every iteration. So `total` ends up holding only the last element, not the running sum.\n\nThe fix is to use `+=`:\n\n```python\ndef average(xs):\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nTwo smaller notes:\n- If `xs` is empty, `len(xs)` is 0 and this raises `ZeroDivisionError`. You may want to handle that explicitly.\n- If you're on Python 3.8+, `statistics.mean(xs)` or `sum(xs) / len(xs)` avoids the manual loop entirely (`sum(xs) / len(xs)` is the idiomatic one-liner here).",
+      "input_tokens": 71,
+      "output_tokens": 285,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 56,
+      "local_count_output": 196
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a concise senior Python reviewer."
+        },
+        {
+          "role": "user",
+          "content": "Why does this return the wrong result?\n\ndef average(xs):\n    total = 0\n    for x in xs:\n        total =+ x\n    return total / len(xs)"
+        },
+        {
+          "role": "assistant",
+          "content": "The bug is on this line:\n\n```python\ntotal =+ x\n```\n\n`=+` is not a compound operator in Python. It parses as `total = +x`, which assigns the unary-plus value of `x` to `total` on every iteration. So `total` ends up holding only the last element, not the running sum.\n\nThe fix is to use `+=`:\n\n```python\ndef average(xs):\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nTwo smaller notes:\n- If `xs` is empty, `len(xs)` is 0 and this raises `ZeroDivisionError`. You may want to handle that explicitly.\n- If you're on Python 3.8+, `statistics.mean(xs)` or `sum(xs) / len(xs)` avoids the manual loop entirely (`sum(xs) / len(xs)` is the idiomatic one-liner here)."
+        },
+        {
+          "role": "user",
+          "content": "Fix it and also handle the empty list."
+        }
+      ],
+      "text": "```python\ndef average(xs):\n    if not xs:\n        raise ValueError(\"average() requires a non-empty sequence\")\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nI raise `ValueError` rather than returning a default like `0` or `None`, since an average of nothing is undefined and returning a placeholder would hide the problem. If you'd prefer a different behavior, such as returning `None`, that's a simple change.",
+      "input_tokens": 373,
+      "output_tokens": 151,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 269,
+      "local_count_output": 105
+    },
+    {
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a concise senior Python reviewer."
+        },
+        {
+          "role": "user",
+          "content": "Why does this return the wrong result?\n\ndef average(xs):\n    total = 0\n    for x in xs:\n        total =+ x\n    return total / len(xs)"
+        },
+        {
+          "role": "assistant",
+          "content": "The bug is on this line:\n\n```python\ntotal =+ x\n```\n\n`=+` is not a compound operator in Python. It parses as `total = +x`, which assigns the unary-plus value of `x` to `total` on every iteration. So `total` ends up holding only the last element, not the running sum.\n\nThe fix is to use `+=`:\n\n```python\ndef average(xs):\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nTwo smaller notes:\n- If `xs` is empty, `len(xs)` is 0 and this raises `ZeroDivisionError`. You may want to handle that explicitly.\n- If you're on Python 3.8+, `statistics.mean(xs)` or `sum(xs) / len(xs)` avoids the manual loop entirely (`sum(xs) / len(xs)` is the idiomatic one-liner here)."
+        },
+        {
+          "role": "user",
+          "content": "Fix it and also handle the empty list."
+        },
+        {
+          "role": "assistant",
+          "content": "```python\ndef average(xs):\n    if not xs:\n        raise ValueError(\"average() requires a non-empty sequence\")\n    total = 0\n    for x in xs:\n        total += x\n    return total / len(xs)\n```\n\nI raise `ValueError` rather than returning a default like `0` or `None`, since an average of nothing is undefined and returning a placeholder would hide the problem. If you'd prefer a different behavior, such as returning `None`, that's a simple change."
+        },
+        {
+          "role": "user",
+          "content": "Write two pytest tests for the fixed version."
+        }
+      ],
+      "text": "```python\nimport pytest\n\nfrom average import average\n\n\ndef test_average_returns_mean_of_values():\n    assert average([1, 2, 3, 4]) == 2.5\n\n\ndef test_average_empty_list_raises_value_error():\n    with pytest.raises(ValueError):\n        average([])\n```\n\nThese assume the function lives in `average.py`. Adjust the import if your module is named differently.",
+      "input_tokens": 543,
+      "output_tokens": 122,
+      "truncated": false,
+      "stop_reason": "end_turn",
+      "local_count_input": 391,
+      "local_count_output": 80
+    }
+  ]
+}
