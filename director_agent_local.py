@@ -644,7 +644,10 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
             system=f"You are Director {self.director_id} in a collaborative LEGO construction task.",
             messages=[{"role": "user", "content": prompt}],
         )
-        response = message.content[0].text
+        response = ""
+        for block in message.content:
+            if block.type == "text":
+                response += block.text
         
         # check actual usage from API response metadata
         print(f"  [CLAUDE USAGE] input_tokens: {message.usage.input_tokens}")

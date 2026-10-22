@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 run_multiTurn_builder_local.py
-===========================
+==============================
 
 Offline / no-API-cost version of `run_single_builder.py`, running BOTH arms of
 each divergence turn through the same local Builder, and now rolling each arm
@@ -37,6 +37,24 @@ and its own conversation. Two independent switches control those turns:
       whole-board IoU vs target is kept. This uses the target, so it is an
       ORACLE selection rule. history+best isolates compounding returns from
       director selection, with no generation in the loop.
+
+  --followon-select policy  (needs --policy-path)
+      The trained index policy picks ONE director per follow-on turn and the
+      Builder hears only that director, as at the divergence turn. Scoring
+      reuses the policy project's own code (features.encode_arm_state and
+      models.ArmStateEvaluator, imported from --policy-code-dir): each
+      director's ArmState history up to the current turn is encoded, the three
+      rows are scored, and the argmax is taken, exactly as in training. Each
+      arm keeps its own histories, so the policy reacts to that arm's board
+      and conversation. By default the FACTUAL arm then uses 'all'; set
+      --factual-followon-select policy to run the policy in both arms, which
+      isolates the step-0 decision under policy control afterwards.
+
+      Before trusting a policy rollout, run --policy-check-only: it rebuilds
+      the policy input at every divergence turn and checks that the argmax
+      reproduces the logged 'predicted' director. Near 100% means the features
+      match training; well below means FEATURE_MODE/FEATURE_TIER,
+      USE_POOLED_HISTORY or turn numbering differ from how the .pt was trained.
 
 In every mode the ONLY difference between the arms is the step-0 director
 choice; everything downstream is the consequence of that choice.
@@ -102,6 +120,7 @@ import importlib
 import io
 import json
 import math
+import os
 import random
 import re
 import statistics
@@ -615,10 +634,218 @@ def execute_step(
 
 
 # --------------------------------------------------------------------------- #
+# Index policy (follow-on selection by the trained ArmStateEvaluator)
+# --------------------------------------------------------------------------- #
+POLICY_MODULES = ("config", "arm_state", "features", "models")
+
+
+def find_policy_code_dir(policy_path: Path, given: Optional[Path]) -> Path:
+    candidates = [given] if given else [policy_path.parent, policy_path.parent.parent, Path.cwd()]
+    for c in candidates:
+        if c and (Path(c) / "features.py").exists() and (Path(c) / "config.py").exists():
+            return Path(c).resolve()
+    sys.exit(f"[policy] Could not find features.py/config.py near {policy_path}. "
+             f"Pass --policy-code-dir <phase1_refactor folder>.")
+
+
+class PolicyScorer:
+    """
+    Loads the trained index policy and scores D1/D2/D3 exactly as training did:
+    each director's ArmState history up to the current turn goes through the
+    project's own features.encode_arm_state, the three rows go through
+    ArmStateEvaluator(X, role_ids), and the pick is the argmax.
+
+    The policy project's config/features/models/arm_state modules are imported
+    from --policy-code-dir. If another module named 'config' is already loaded
+    (e.g. from the CRAFT code), it is set aside during the import and restored
+    afterwards, so neither side sees the other's config.
+    """
+
+    def __init__(self, policy_path: Path, code_dir: Path, feature_mode: Optional[str] = None,
+                 feature_tier: Optional[str] = None, allow_silent: bool = False):
+        if feature_mode:
+            os.environ["FEATURE_MODE"] = feature_mode
+        if feature_tier:
+            os.environ["FEATURE_TIER"] = feature_tier
+        import torch
+        self.torch = torch
+
+        code_dir_s = str(code_dir)
+        saved = {n: sys.modules.pop(n) for n in POLICY_MODULES if n in sys.modules}
+        sys.path.insert(0, code_dir_s)
+        try:
+            mods = {n: importlib.import_module(n) for n in POLICY_MODULES}
+            for n, m in mods.items():
+                f = str(Path(getattr(m, "__file__", "")).resolve())
+                if not f.startswith(code_dir_s):
+                    sys.exit(f"[policy] module '{n}' was imported from {f}, not {code_dir_s}.")
+            # Load while the policy modules are registered, in case the
+            # checkpoint pickles objects from them.
+            ckpt = torch.load(str(policy_path), map_location="cpu", weights_only=False)
+        finally:
+            sys.path.remove(code_dir_s)
+            for n in saved:
+                sys.modules[n] = saved[n]
+
+        self.cfg = mods["config"]
+        self.features = mods["features"]
+        self.models = mods["models"]
+        self.arm_mod = mods["arm_state"]
+        self.allow_silent = allow_silent
+        self.model, self.sat_mean, self.sat_std = self._build_model(ckpt)
+        self.model.to(self.cfg.device).eval()
+
+        print(f"[policy] loaded {policy_path.name} | FEATURE_MODE={self.cfg.FEATURE_MODE} "
+              f"FEATURE_TIER={self.cfg.FEATURE_TIER} D={self.cfg.D} "
+              f"pooled={self.cfg.USE_POOLED_HISTORY} attention={self.cfg.USE_ATTENTION} "
+              f"sat_mean={self.sat_mean:.4f} sat_std={self.sat_std:.4f}")
+        if self.cfg.FEATURE_MODE != "embeddings_only":
+            print("[policy] NOTE: numeric features are active. Two inputs can only be approximated "
+                  "here: historical 'which director did the Builder follow' tags (not in CRAFT, "
+                  "set to 0) and the current turn's after-move board (unknown at decision time, "
+                  "the before-move board is used). Check the divergence-reproduction rate.")
+
+    # -- loading ------------------------------------------------------------
+    def _build_model(self, ckpt):
+        torch = self.torch
+        nn = torch.nn
+        if isinstance(ckpt, nn.Module):
+            return ckpt, 0.0, 1.0
+
+        if not isinstance(ckpt, dict):
+            sys.exit(f"[policy] Unrecognized checkpoint type {type(ckpt).__name__}.")
+
+        def is_state(d):
+            return isinstance(d, dict) and d and all(hasattr(v, "shape") for v in d.values())
+
+        state = None
+        for k in ("model_state", "state_dict", "model_state_dict", "model"):
+            v = ckpt.get(k)
+            if isinstance(v, nn.Module):
+                return v, *self._sat_stats(ckpt)
+            if is_state(v):
+                state = v
+                break
+        if state is None and is_state(ckpt):
+            state = ckpt
+        if state is None:
+            sys.exit(f"[policy] No state dict found in checkpoint. Top-level keys: {sorted(ckpt.keys())}")
+
+        self._warn_config_mismatch(ckpt)
+
+        first_w = next((v for v in state.values() if getattr(v, "ndim", 0) == 2), None)
+        if first_w is not None and not self.cfg.USE_ATTENTION and first_w.shape[1] != self.cfg.D:
+            sys.exit(f"[policy] Checkpoint expects input dim {first_w.shape[1]} but config.D="
+                     f"{self.cfg.D}. Set USE_POOLED_HISTORY in config.py to match this policy.")
+
+        hidden_opts = [self.cfg.POLICY_HIDDEN_DIM]
+        if first_w is not None and first_w.shape[0] not in hidden_opts:
+            hidden_opts.append(int(first_w.shape[0]))
+        errors = []
+        for h in hidden_opts:
+            try:
+                model = self.models.ArmStateEvaluator(input_dim=self.cfg.D, hidden_dim=h,
+                                                      use_attention=self.cfg.USE_ATTENTION)
+                model.load_state_dict(state)
+                return model, *self._sat_stats(ckpt)
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"hidden_dim={h}: {exc}")
+        sys.exit("[policy] Could not load weights into ArmStateEvaluator:\n  " + "\n  ".join(errors))
+
+    @staticmethod
+    def _sat_stats(ckpt) -> Tuple[float, float]:
+        src = ckpt.get("extra") if isinstance(ckpt.get("extra"), dict) else ckpt
+        return float(src.get("sat_mean", 0.0)), float(src.get("sat_std", 1.0))
+
+    def _warn_config_mismatch(self, ckpt) -> None:
+        stored = ckpt.get("config") if isinstance(ckpt.get("config"), dict) else ckpt
+        for key in ("FEATURE_MODE", "FEATURE_TIER", "USE_POOLED_HISTORY", "USE_ATTENTION"):
+            if key in stored and stored[key] != getattr(self.cfg, key):
+                print(f"[policy] WARNING: checkpoint has {key}={stored[key]!r} but config has "
+                      f"{getattr(self.cfg, key)!r}. Set it to match (env var or config.py).")
+
+    # -- arm states ---------------------------------------------------------
+    def make_arm(self, d, utterance, t, structure_id, combo, before, after,
+                 tag=0, sat=0.0, move_failed=""):
+        A = self.arm_mod
+        arm = A.ArmState(
+            speaker=f"{d}_message", structure=structure_id, modelCombo=combo,
+            utterance=utterance or "", timestamp=t,
+            constraint=A.ConstraintBelief(tag), satisfaction=A.Satisfaction(sat),
+            structureBefore=copy.deepcopy(before), structureAfter=copy.deepcopy(after),
+        )
+        arm.moveFailed = move_failed
+        return arm
+
+    def craft_histories(self, craft_index, structure_id, director_model, upto_turn,
+                        combo, sat_fn, after_fn) -> Dict[str, List]:
+        """Each director's ArmStates for CRAFT turns < upto_turn (turn 0 is
+        dropped by encode_arm_state, as in training)."""
+        hist = {d: [] for d in DIRECTORS}
+        for s in range(0, upto_turn):
+            r = craft_index.get((s, structure_id, director_model))
+            if r is None:
+                continue
+            self.append_craft_turn(hist, r, s, structure_id, combo, sat_fn, after_fn(s))
+        return hist
+
+    def append_craft_turn(self, hist, row, t, structure_id, combo, sat_fn, after,
+                          chosen=None, move_failed=None):
+        before = parse_board(row.get("structure_before")) if row.get("structure_before") else None
+        failed = move_failed if move_failed is not None else (
+            "True" if str(row.get("failed_move", "")).lower() in ("true", "1") else "")
+        board_for_sat = after if after is not None else before
+        for d in DIRECTORS:
+            tag = 0 if chosen is None else (1 if d == chosen else -1)
+            hist[d].append(self.make_arm(
+                d, row.get(f"{d}_message") or "", t, structure_id, combo, before, after,
+                tag=tag, sat=sat_fn(d, board_for_sat), move_failed=failed))
+
+    def _trim(self, arms: List) -> List:
+        real = [a for a in arms if a.timestamp != 0]
+        keep = self.cfg.HISTORY_LEN + 1
+        return real[-keep:] if len(real) > keep else real
+
+    # -- scoring ------------------------------------------------------------
+    def score(self, histories: Dict[str, List]) -> Dict[str, float]:
+        torch = self.torch
+        xs, rs = [], []
+        for d in DIRECTORS:
+            x, r = self.features.encode_arm_state(self._trim(histories[d]), self.sat_mean, self.sat_std)
+            xs.append(x)
+            rs.append(r)
+        dev = self.cfg.device
+        with torch.no_grad():
+            out = self.model(torch.stack(xs).to(dev), torch.stack(rs).to(dev))
+        return dict(zip(DIRECTORS, out.view(-1).cpu().tolist()))
+
+    def choose(self, scores: Dict[str, float], speaking: List[str]) -> Tuple[str, str]:
+        raw = max(DIRECTORS, key=lambda d: scores[d])
+        if self.allow_silent or raw in speaking or not speaking:
+            return raw, raw
+        return max(speaking, key=lambda d: scores[d]), raw
+
+
+def make_sat_fn(target_raw):
+    """Satisfaction as defined in arm_state.py: IoU of the board projected onto
+    a director's partial view vs that director's view of the target. Only
+    affects the policy under a privileged FEATURE_TIER."""
+    def sat(d, board):
+        if board is None:
+            return 0.0
+        try:
+            return calculate_iou_board(normalize_structure(getParticalView(d, board)),
+                                       normalize_structure(getParticalView(d, target_raw)))
+        except Exception:  # noqa: BLE001
+            return 0.0
+    return sat
+
+
+# --------------------------------------------------------------------------- #
 # Follow-on director turns
 # --------------------------------------------------------------------------- #
 FOLLOWON_SOURCES = ("generate", "history")
-FOLLOWON_SELECTS = ("all", "best")
+FOLLOWON_SELECTS = ("all", "best", "policy")
 CONVERSATION_KEYS = ("conversation_snapshot", "conversation_history", "conversation")
 
 
@@ -922,16 +1149,32 @@ def run_rollout(
     stop_reason = None
     conversation = base_conversation(row, followon["conversation_field"])
     directors = followon["make_directors"](row) if (source == "generate" and horizon > 1) else None
+    policy = followon.get("policy") if select == "policy" else None
+    combo = message_obj.get("modelCombo")
+    sat_fn = followon.get("sat_fn")
+    hist = None
+    if policy is not None:
+        hist = policy.craft_histories(
+            craft_index, structure_id, director_model, turn_index, combo, sat_fn,
+            lambda s_: ground_truth_board_after(craft_index, s_, structure_id, director_model, after_key),
+        )
 
     for k in range(horizon):
         t = turn_index + k
         if k == 0:
             utterance = f"{director}: {message_obj['utterance']}"
+            board_pre = copy.deepcopy(board)
             step, board, spans = execute_step(
                 agent, arm, 0, director, utterance, board, spans,
                 target_norm, oracle_moves, check_tokens=check_tokens,
             )
             step["selection"] = {"mode": "divergence", "chosen": director}
+            if policy is not None:
+                row_t = dict(row)
+                row_t["structure_before"] = board_pre
+                policy.append_craft_turn(
+                    hist, row_t, t, structure_id, combo, sat_fn, copy.deepcopy(board),
+                    chosen=director, move_failed="" if step["move_executed"] else "True")
             new_lines = []
         else:
             if source == "history":
@@ -953,9 +1196,35 @@ def run_rollout(
             if not speaking:
                 stop_reason = f"all directors silent at turn {t}"
                 break
-            step, board, spans = run_followon_step(
-                agent, arm, k, msgs, speaking, board, spans, target_norm, select,
-            )
+            if policy is not None:
+                board_pre = copy.deepcopy(board)
+                cands = {
+                    d: policy.make_arm(d, msgs[d]["text"], t, structure_id, combo,
+                                       board_pre, board_pre, tag=0, sat=sat_fn(d, board_pre))
+                    for d in DIRECTORS
+                }
+                scores = policy.score({d: hist[d] + [cands[d]] for d in DIRECTORS})
+                chosen, raw = policy.choose(scores, speaking)
+                print(f"    [{arm:<14} t+{k}] policy scores "
+                      + " ".join(f"{d}={scores[d]:+.4f}" for d in DIRECTORS)
+                      + f" -> {chosen}" + (f" (raw argmax {raw} is silent)" if raw != chosen else ""))
+                step, board, spans = execute_step(
+                    agent, arm, k, chosen, f"{chosen}: {msgs[chosen]['text']}",
+                    board, spans, target_norm, None,
+                )
+                step["selection"] = {
+                    "mode": "policy", "chosen": chosen, "raw_argmax": raw,
+                    "picked_silent": raw != chosen, "scores": scores, "speaking": speaking,
+                }
+                for d in DIRECTORS:
+                    cands[d].constraint = policy.arm_mod.ConstraintBelief(1 if d == chosen else -1)
+                    cands[d].structureAfter = copy.deepcopy(board)
+                    cands[d].moveFailed = "" if step["move_executed"] else "True"
+                    hist[d].append(cands[d])
+            else:
+                step, board, spans = run_followon_step(
+                    agent, arm, k, msgs, speaking, board, spans, target_norm, select,
+                )
             step["director_messages"] = msgs
             new_lines = [f"{d}: {msgs[d]['text']}" for d in speaking]
 
@@ -1070,6 +1339,26 @@ def main() -> None:
     ap.add_argument("--max-history-chars", type=int, default=6000,
                     help="Keep only the last N characters of conversation in director prompts, so "
                          "the prompt stays inside the Ollama context window. 0 = no cap.")
+    ap.add_argument("--policy-path", type=Path, default=None,
+                    help="Trained index policy (.pt). Required for --followon-select policy and "
+                         "--policy-check-only.")
+    ap.add_argument("--policy-code-dir", type=Path, default=None,
+                    help="Folder with the policy project's config.py/features.py/models.py/"
+                         "arm_state.py. Default: searched next to --policy-path, then cwd.")
+    ap.add_argument("--policy-feature-mode", default=None,
+                    help="Override FEATURE_MODE for the policy (must match how it was trained).")
+    ap.add_argument("--policy-feature-tier", default=None,
+                    help="Override FEATURE_TIER for the policy (must match how it was trained).")
+    ap.add_argument("--policy-allow-silent", action="store_true",
+                    help="Let the policy pick a silent director at follow-on turns. Default: if "
+                         "the argmax is silent, take the best-scoring director who spoke (logged).")
+    ap.add_argument("--factual-followon-select", choices=FOLLOWON_SELECTS, default=None,
+                    help="Follow-on selection for the FACTUAL arm. Default: same as "
+                         "--followon-select, except 'all' when that is 'policy'.")
+    ap.add_argument("--policy-check-only", action="store_true",
+                    help="Rebuild the policy's input at every divergence turn, check its argmax "
+                         "matches the logged 'predicted' director, report the rate and exit. "
+                         "No Ollama calls.")
     ap.add_argument("--preview-director-prompt", action="store_true",
                     help="Print the D1 prompt for the first usable turn and exit (no model calls).")
     ap.add_argument("--followon-utterance-field", default=None,
@@ -1094,6 +1383,12 @@ def main() -> None:
     if args.horizon < 1:
         sys.exit("--horizon must be >= 1")
 
+    cf_select = args.followon_select
+    fa_select = args.factual_followon_select or ("all" if cf_select == "policy" else cf_select)
+    needs_policy = args.policy_check_only or "policy" in (cf_select, fa_select)
+    if needs_policy and args.policy_path is None:
+        sys.exit("--policy-path is required for --followon-select policy / --policy-check-only.")
+
     craft_index = build_craft_index(args.dataset)
     if args.inspect_row:
         inspect_craft_row(craft_index)
@@ -1111,6 +1406,16 @@ def main() -> None:
     else:
         conversation_field = args.conversation_field or first_present(sample_row, CONVERSATION_KEYS)
     print(f"[data] Director conversation history from CRAFT column: {conversation_field or '(none)'}")
+
+    policy = None
+    if needs_policy:
+        policy = PolicyScorer(
+            args.policy_path, find_policy_code_dir(args.policy_path, args.policy_code_dir),
+            feature_mode=args.policy_feature_mode, feature_tier=args.policy_feature_tier,
+            allow_silent=args.policy_allow_silent,
+        )
+    if args.policy_check_only:
+        args.horizon = 1   # nothing past the divergence turn is needed for the check
 
     director_model_name = args.director_model or args.model
     LocalDirectorAgent = None
@@ -1136,7 +1441,7 @@ def main() -> None:
     run_cf = args.arms in ("both", "counterfactual")
     run_fa = args.arms in ("both", "factual")
 
-    if not args.skip_preflight and not args.preview_director_prompt:
+    if not args.skip_preflight and not args.preview_director_prompt and not args.policy_check_only:
         preflight_ollama(args.base_url, args.model)
         if LocalDirectorAgent is not None and director_model_name != args.model:
             preflight_ollama(args.base_url, director_model_name)
@@ -1154,7 +1459,7 @@ def main() -> None:
             sys.exit(f"[directors] Could not build director target views ({exc}). "
                      f"Check get_director_views in structure_generator_v2.")
 
-    def make_followon(row: Dict, struct_entry: Dict) -> Dict:
+    def make_followon(row: Dict, struct_entry: Dict, select: str) -> Dict:
         target_views = None
         make_directors = None
         if LocalDirectorAgent is not None:
@@ -1173,7 +1478,9 @@ def main() -> None:
                 }
         return {
             "source": args.followon_source,
-            "select": args.followon_select,
+            "select": select,
+            "policy": policy,
+            "sat_fn": make_sat_fn(struct_entry["structure"]),
             "conversation_field": conversation_field,
             "max_history_chars": args.max_history_chars or None,
             "target_views": target_views,
@@ -1284,6 +1591,34 @@ def main() -> None:
         oracle_moves = json.loads(row["oracle_moves"]) if args.use_oracle else None
         director_label = director_label_from_combo(cf_msg["modelCombo"])
 
+        policy_check = None
+        if policy is not None:
+            # Rebuild exactly what the policy saw when it made the logged pick:
+            # every director's history up to and including turn t, with the
+            # historical after-board, then compare argmax to `predicted`.
+            sat_fn = make_sat_fn(target)
+            after_fn = lambda s_: ground_truth_board_after(  # noqa: E731
+                craft_index, s_, structure_id, director_model, after_key)
+            hist = policy.craft_histories(craft_index, structure_id, director_model,
+                                          turn_index + 1, cf_msg.get("modelCombo"), sat_fn, after_fn)
+            scores = policy.score(hist)
+            raw = max(DIRECTORS, key=lambda d: scores[d])
+            text_match = all(
+                (turn.get(f"{d}_message") or {}).get("utterance", row.get(f"{d}_message") or "")
+                == (row.get(f"{d}_message") or "")
+                for d in DIRECTORS
+            )
+            policy_check = {"scores": scores, "argmax": raw, "logged_predicted": predicted,
+                            "reproduced": raw == predicted, "utterances_match_craft": text_match}
+            stats["policy_check_n"] += 1
+            stats["policy_check_agree"] += int(raw == predicted)
+            stats["policy_check_text_mismatch"] += int(not text_match)
+            print(f"  [policy check] argmax={raw} logged={predicted} "
+                  f"{'OK' if raw == predicted else 'MISMATCH'}"
+                  + ("" if text_match else "  (divergence-log utterances differ from CRAFT text)"))
+            if args.policy_check_only:
+                continue
+
         record: Dict = {
             "turn": turn_index,
             "structure_id": row["structure_id"],
@@ -1294,7 +1629,9 @@ def main() -> None:
             "silent_director": cf_silent,
             "horizon": args.horizon,
             "followon_source": args.followon_source,
-            "followon_select": args.followon_select,
+            "followon_select": cf_select,
+            "factual_followon_select": fa_select,
+            "policy_check": policy_check,
             "director_generation_model": director_model_name if LocalDirectorAgent else None,
             "builder_backend": "ollama",
             "builder_model": args.model,
@@ -1303,7 +1640,9 @@ def main() -> None:
         }
 
         try:
-            followon = make_followon(row, struct_by_id[row["structure_id"]])
+            followon_cf = make_followon(row, struct_by_id[row["structure_id"]], cf_select)
+            followon_fa = {**followon_cf, "select": fa_select}
+            followon = followon_cf
         except Exception as exc:  # noqa: BLE001
             print(f"  [skip] could not build director target views: {exc}")
             stats["no_target_views"] += 1
@@ -1328,27 +1667,33 @@ def main() -> None:
             row=row, target_norm=target_norm, oracle_moves=oracle_moves,
             craft_index=craft_index, turn_index=turn_index, structure_id=structure_id,
             director_model=director_model, horizon=args.horizon,
-            after_key=after_key, followon=followon,
+            after_key=after_key,
         )
 
         if run_cf:
             record["counterfactual"] = run_rollout(
                 agent, "counterfactual", predicted, cf_msg,
-                check_tokens=(count == 1), **rollout_kwargs,
+                followon=followon_cf, check_tokens=(count == 1), **rollout_kwargs,
             )
             for s in record["counterfactual"]["steps"]:
                 stats[f"cf_action_{s['builder_move']['action']}"] += 1
                 stats["cf_parse_failure"] += int(s["parse_failed"])
+                if s.get("selection", {}).get("mode") == "policy":
+                    stats["cf_policy_steps"] += 1
+                    stats["cf_policy_picked_silent"] += int(s["selection"]["picked_silent"])
 
         if run_fa:
             # Same local Builder, same seed, same prompts, same follow-on
             # dialogue; only the step-0 director differs.
             record["factual"] = run_rollout(
-                agent, "factual", historical, fa_msg, **rollout_kwargs,
+                agent, "factual", historical, fa_msg, followon=followon_fa, **rollout_kwargs,
             )
             for s in record["factual"]["steps"]:
                 stats[f"fa_action_{s['builder_move']['action']}"] += 1
                 stats["fa_parse_failure"] += int(s["parse_failed"])
+                if s.get("selection", {}).get("mode") == "policy":
+                    stats["fa_policy_steps"] += 1
+                    stats["fa_policy_picked_silent"] += int(s["selection"]["picked_silent"])
 
         if run_cf and run_fa:
             cf_steps = record["counterfactual"]["steps"]
@@ -1423,6 +1768,20 @@ def main() -> None:
         all_turns_counter[key].append(record)
         stats["scored"] += 1
 
+    if args.policy_check_only:
+        n, a = stats["policy_check_n"], stats["policy_check_agree"]
+        print("\n" + "=" * 76)
+        print(f"  POLICY REPRODUCTION CHECK: {a}/{n} divergence turns reproduced "
+              f"({(a / n if n else float('nan')):.1%})")
+        if stats["policy_check_text_mismatch"]:
+            print(f"  {stats['policy_check_text_mismatch']} turns had divergence-log utterances that "
+                  f"differ from the CRAFT text -- likely the cause of mismatches there.")
+        print("  Near 100%: features are reproduced; the policy can be trusted in rollouts.\n"
+              "  Well below: config (FEATURE_MODE/TIER, USE_POOLED_HISTORY) or turn numbering\n"
+              "  differs from how this policy was trained. Fix before running rollouts.")
+        print("=" * 76)
+        return
+
     # ── Write ──────────────────────────────────────────────────────────────
     for key, rows in all_turns_counter.items():
         out_path = args.out_dir / f"{key}.json"
@@ -1444,7 +1803,21 @@ def main() -> None:
         "arms": args.arms,
         "horizon": args.horizon,
         "followon_source": args.followon_source,
-        "followon_select": args.followon_select,
+        "followon_select": cf_select,
+        "factual_followon_select": fa_select,
+        "policy_path": str(args.policy_path) if args.policy_path else None,
+        "policy_feature_mode": policy.cfg.FEATURE_MODE if policy else None,
+        "policy_feature_tier": policy.cfg.FEATURE_TIER if policy else None,
+        "policy_followon_steps": {
+            "counterfactual": stats["cf_policy_steps"], "factual": stats["fa_policy_steps"],
+            "argmax_was_silent_counterfactual": stats["cf_policy_picked_silent"],
+            "argmax_was_silent_factual": stats["fa_policy_picked_silent"],
+        } if policy else None,
+        "policy_reproduction": ({
+            "n": stats["policy_check_n"], "agree": stats["policy_check_agree"],
+            "rate": round(stats["policy_check_agree"] / stats["policy_check_n"], 4)
+            if stats["policy_check_n"] else None,
+        } if policy else None),
         "director_generation_model": director_model_name if LocalDirectorAgent else None,
         "director_module": args.director_module if LocalDirectorAgent else None,
         "conversation_field": conversation_field,
@@ -1496,7 +1869,7 @@ def main() -> None:
 
     print("\n" + "=" * 76)
     print(f"  LOCAL BUILDER ROLLOUT SUMMARY  (horizon={args.horizon}, "
-          f"follow-on={args.followon_source}/{args.followon_select}; counterfactual − factual)")
+          f"follow-on={args.followon_source}, cf={cf_select}, fa={fa_select}; counterfactual − factual)")
     print("=" * 76)
     for k, v in summary.items():
         if not k.startswith(("paired_delta", "ground_truth_by_step", "full_horizon_turns")):
@@ -1528,6 +1901,11 @@ def main() -> None:
             f"  ⚠ Silent-director rate {silent_rate:.1%} exceeds 10%. Compare 'full_board'\n"
             f"    against 'full_board_excluding_silent' before reading delta as policy quality."
         )
+    if policy is not None and stats["policy_check_n"] and \
+            stats["policy_check_agree"] / stats["policy_check_n"] < 0.9:
+        print(f"  ⚠ The loaded policy reproduced only {stats['policy_check_agree']}/"
+              f"{stats['policy_check_n']} logged divergence picks. Its follow-on choices may not be\n"
+              f"    the trained policy's. Run --policy-check-only and fix the config first.")
     print(f"  Wrote {len(all_turns_counter)} game files to {args.out_dir}")
 
 
