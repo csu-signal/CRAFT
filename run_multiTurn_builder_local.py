@@ -75,8 +75,13 @@ Caveats that matter for interpretation
     the arm's board. The further an arm drifts from history, the less well the
     instructions fit it. That is inherent to replaying logged dialogue.
   * CRAFT `oracle_moves` for turn t+k were enumerated for the historical board,
-    so with --use-oracle they are only passed at step 0 (where both arms share
-    the historical pre-move board). Follow-on steps never get oracle moves.
+    so with --use-oracle alone they are only passed at step 0 (where both arms
+    share the historical pre-move board). With --oracle-every-turn, step 0
+    still uses the logged CRAFT candidates, and every follow-on turn
+    regenerates candidates for that arm's own board with the CRAFT project's
+    agents/oracle.py (reconstruct_state + enumerate_correct_actions, flag 'ok' only).
+    Step 0 is also regenerated once and compared with the logged candidates
+    ('oracle_check'), which validates the regeneration.
   * Rollouts stop early when the game ends (no CRAFT row for the next turn).
     Later steps are therefore computed on a shrinking subset of turns; the
     per-step `n` in the summary shows this. Compare step 2 against step 0
@@ -100,14 +105,17 @@ Usage
     python run_multiTurn_builder_local.py --divergence-dir ... --structures ... \
         --out-dir ... --inspect-row
 
-    # 2) Run:
+    # 2) Run (output folder is named automatically; --out-dir overrides):
     python run_multiTurn_builder_local.py \
-        --divergence-dir /home/hannah/CRAFT/CRAFT/divergenceData_policy_seed42_kl0.1_closs0.01_nosamp_hpt0.4/validation \
-        --structures    /home/hannah/CRAFT/CRAFT/data/structures_dataset_20.json \
-        --out-dir       /home/hannah/CRAFT/CRAFT/gittenExperiments/counterfactuals/local_qwen7b_seed42_h3 \
+        --divergence-dir .../divergenceData_policy_seed77_b0.9_kl0.1_closs0.01_nosamp_hpt0.4/validation \
+        --structures    .../CRAFT/data/structures_dataset_20.json \
         --model         qwen2.5:7b-instruct \
-        --horizon 3 \
-        --limit 20
+        --oracle-every-turn --horizon 5 --limit 50 \
+        --followon-source generate --followon-select policy \
+        --policy-path   .../exports/policy_seed77_b0.9_kl0.1_closs0.01_nosamp_hpt0.4.pt
+
+    # -> .../phase1_refactor/multiTurn/local_qwen2.5-7b-instruct__policy_seed77_b0.9_kl0.1_
+    #    closs0.01_nosamp_hpt0.4__validation__unfiltered__oracleEvery__h5_n50__generate-policy
 """
 
 from __future__ import annotations
@@ -562,6 +570,102 @@ def ground_truth_board_after(
 
 
 # --------------------------------------------------------------------------- #
+# Oracle move regeneration (--oracle-every-turn)
+# --------------------------------------------------------------------------- #
+TARGET_SPAN_KEYS = ("target_spans", "spans", "structure_spans", "targetSpans")
+
+
+def target_spans_for(struct_entry: Dict):
+    """Target spans from the structures file entry, or None if absent."""
+    for k in TARGET_SPAN_KEYS:
+        if k in struct_entry and struct_entry[k] is not None:
+            v = struct_entry[k]
+            return json.loads(v) if isinstance(v, str) else v
+    return None
+
+
+def structure_has_large_blocks(structure: Dict) -> bool:
+    return any(str(b).endswith("l") for stack in structure.values() for b in stack)
+
+
+def oracle_move_key(cand: Dict):
+    """Hashable identity of an oracle candidate (same fields as adherence)."""
+    m = _candidate_move_dict(cand)
+    action = m.get("action")
+    return (
+        action,
+        _norm_pos_str(m.get("position")),
+        _coerce_layer(m.get("layer")),
+        _norm_pos_str(m.get("span_to")),
+        m.get("block") if action == "place" else None,
+    )
+
+
+def usable_candidates(cands: Optional[List[Dict]]) -> List[Dict]:
+    """Keep runnable candidates only (flag 'ok', or no flag field at all)."""
+    return [c for c in (cands or []) if c.get("flag", "ok") == "ok"]
+
+
+class OracleRegenerator:
+    """
+    Recomputes CRAFT oracle candidates for an arbitrary board by calling the
+    CRAFT project's own oracle.reconstruct_state + enumerate_correct_actions,
+    so follow-on turns get candidates that are valid for THAT arm's board.
+    Only flag == 'ok' candidates are passed to the Builder.
+    """
+
+    def __init__(self):
+        # CRAFT keeps oracle.py at agents/oracle.py; a top-level oracle.py is
+        # accepted as a fallback. Either way, run from the CRAFT root so
+        # oracle.py's own imports (agents.environment, agents.builder_tools,
+        # structure_generator_v2) resolve.
+        errors = []
+        module = None
+        for name in ("agents.oracle", "oracle"):
+            try:
+                module = importlib.import_module(name)
+                break
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{name}: {exc}")
+        if module is None or not hasattr(module, "enumerate_correct_actions"):
+            sys.exit("[oracle] Could not import oracle.py (" + "; ".join(errors) + "). Run from the "
+                     "CRAFT root, where agents/oracle.py, agents/environment.py, "
+                     "agents/builder_tools.py and structure_generator_v2.py are importable.")
+        print(f"[oracle] using {module.__name__} ({getattr(module, '__file__', '?')})")
+        self._reconstruct = module.reconstruct_state
+        self._enumerate = module.enumerate_correct_actions
+
+    def candidates(self, board, spans, target, target_spans) -> Tuple[List[Dict], List[Dict]]:
+        # enumerate_correct_actions prints [ENUM DEBUG] lines for every failed
+        # simulation; the flags are kept in the record instead.
+        with contextlib.redirect_stdout(io.StringIO()):
+            state = self._reconstruct(
+                {"structure_before": copy.deepcopy(board), "spans_before": copy.deepcopy(spans or {})},
+                {"target_structure": copy.deepcopy(target), "target_spans": copy.deepcopy(target_spans or {})},
+            )
+            all_cands = self._enumerate(state)
+        return usable_candidates(all_cands), all_cands
+
+
+def span_recorded(spans, pos, partner, layer) -> bool:
+    """True if a large block's span (pos<->partner at layer) is in `spans`."""
+    if not isinstance(spans, dict):
+        return False
+    entries = spans.get(layer, spans.get(str(layer), []))
+    want = {_norm_pos_str(pos), _norm_pos_str(partner)}
+    for e in entries or []:
+        try:
+            if {_norm_pos_str(str(e[0])), _norm_pos_str(str(e[1]))} == want:
+                return True
+        except (TypeError, IndexError):
+            continue
+    return False
+
+
+_SPAN_WARNED = False
+
+
+# --------------------------------------------------------------------------- #
 # Step / rollout execution
 # --------------------------------------------------------------------------- #
 def execute_step(
@@ -606,6 +710,19 @@ def execute_step(
             board, spans, move["position"], move["layer"], move["span_to"]
         )
 
+    # Regenerated oracle moves read `spans`; if _place_block does not record a
+    # new large block's span there, later removals of it would be mis-enumerated.
+    span_ok = None
+    if success and move["action"] == "place" and str(move.get("block", "")).endswith("l") \
+            and move.get("span_to"):
+        global _SPAN_WARNED
+        span_ok = span_recorded(spans, move["position"], move["span_to"], move["layer"])
+        if not span_ok and not _SPAN_WARNED:
+            _SPAN_WARNED = True
+            print("  [warn] a placed large block's span was not recorded in `spans` -- "
+                  "_place_block may not update spans in place; regenerated oracle moves for "
+                  "removing it will be flagged missing_span_info.")
+
     oracle_adherent = compute_oracle_adherence(move, oracle_moves)
     partial_views = {
         d: calculate_iou_board(normalize_structure(getParticalView(d, board)), target_norm)
@@ -622,8 +739,10 @@ def execute_step(
         "builder_move": move,
         "move_executed": success,
         "parse_failed": is_parse_failure(move),
+        "oracle_moves": copy.deepcopy(oracle_moves) if oracle_moves is not None else None,
         "oracle_candidate_count": len(oracle_moves) if oracle_moves else 0,
         "oracle_adherent": oracle_adherent,
+        "span_recorded": span_ok,
         "satisfaction_full": calculate_iou_board(normalize_structure(board), target_norm),
         "satisfaction_partial": partial_views.get(director) if director in DIRECTORS else None,
         "partial_views": partial_views,
@@ -1082,11 +1201,13 @@ def generate_director_messages(directors: Dict, board, views: Dict, conversation
     return out
 
 
-def run_followon_step(agent, arm, k, msgs, speaking, board, spans, target_norm, select):
+def run_followon_step(agent, arm, k, msgs, speaking, board, spans, target_norm, select,
+                      oracle_moves=None):
     """Builder turn at a follow-on step under the chosen selection rule."""
     if select == "all":
         utterance = "\n".join(f"{d}: {msgs[d]['text']}" for d in speaking)
-        step, board, spans = execute_step(agent, arm, k, None, utterance, board, spans, target_norm, None)
+        step, board, spans = execute_step(agent, arm, k, None, utterance, board, spans, target_norm,
+                                          oracle_moves)
         step["selection"] = {"mode": "all", "speaking": speaking}
         return step, board, spans
 
@@ -1097,7 +1218,7 @@ def run_followon_step(agent, arm, k, msgs, speaking, board, spans, target_norm, 
     for d in speaking:
         res, b, s = execute_step(
             agent, f"{arm}/{d}", k, d, f"{d}: {msgs[d]['text']}",
-            copy.deepcopy(board), copy.deepcopy(spans), target_norm, None,
+            copy.deepcopy(board), copy.deepcopy(spans), target_norm, oracle_moves,
         )
         cands.append((d, res, b, s))
     best_i = max(range(len(cands)), key=lambda i: (cands[i][1]["satisfaction_full"], -i))
@@ -1169,6 +1290,7 @@ def run_rollout(
                 target_norm, oracle_moves, check_tokens=check_tokens,
             )
             step["selection"] = {"mode": "divergence", "chosen": director}
+            step["oracle_source"] = "craft" if oracle_moves else None
             if policy is not None:
                 row_t = dict(row)
                 row_t["structure_before"] = board_pre
@@ -1196,6 +1318,19 @@ def run_rollout(
             if not speaking:
                 stop_reason = f"all directors silent at turn {t}"
                 break
+            step_oracle, oracle_meta, oracle_flagged = None, None, None
+            if followon.get("oracle") is not None:
+                step_oracle, all_cands = followon["oracle"].candidates(
+                    board, spans, followon["target_raw"], followon["target_spans"])
+                flagged = defaultdict(int)
+                for c in all_cands:
+                    if c.get("flag", "ok") != "ok":
+                        flagged[c.get("flag")] += 1
+                oracle_meta = {"source": "regenerated", "n_usable": len(step_oracle),
+                               "flagged": dict(flagged)}
+                oracle_flagged = [c for c in all_cands if c.get("flag", "ok") != "ok"]
+                print(f"    [{arm:<14} t+{k}] oracle regenerated: {len(step_oracle)} usable"
+                      + (f", flagged {dict(flagged)}" if flagged else ""))
             if policy is not None:
                 board_pre = copy.deepcopy(board)
                 cands = {
@@ -1210,7 +1345,7 @@ def run_rollout(
                       + f" -> {chosen}" + (f" (raw argmax {raw} is silent)" if raw != chosen else ""))
                 step, board, spans = execute_step(
                     agent, arm, k, chosen, f"{chosen}: {msgs[chosen]['text']}",
-                    board, spans, target_norm, None,
+                    board, spans, target_norm, step_oracle,
                 )
                 step["selection"] = {
                     "mode": "policy", "chosen": chosen, "raw_argmax": raw,
@@ -1224,8 +1359,12 @@ def run_rollout(
             else:
                 step, board, spans = run_followon_step(
                     agent, arm, k, msgs, speaking, board, spans, target_norm, select,
+                    oracle_moves=step_oracle,
                 )
             step["director_messages"] = msgs
+            step["oracle_source"] = "regenerated" if oracle_meta else None
+            step["oracle_regeneration"] = oracle_meta
+            step["oracle_flagged"] = copy.deepcopy(oracle_flagged)
             new_lines = [f"{d}: {msgs[d]['text']}" for d in speaking]
 
         step["turn"] = t
@@ -1301,6 +1440,79 @@ def print_table(title: str, endpoints: Dict[str, Dict], indent: str = "  ") -> N
 
 
 # --------------------------------------------------------------------------- #
+# Automatic output folder naming
+# --------------------------------------------------------------------------- #
+def _slug(value) -> str:
+    """Filesystem-safe model/policy name: drops ':latest', ':' -> '-'."""
+    s = re.sub(r":latest$", "", str(value))
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", s).strip("-")
+
+
+def divergence_tag(div_dir: Path) -> Tuple[str, str]:
+    """('policy_seed77_b0.9_...', 'validation') from .../divergenceData_policy_seed77_.../validation."""
+    split = div_dir.name
+    parent = div_dir.parent.name
+    prefix = "divergenceData_"
+    tag = parent[len(prefix):] if parent.startswith(prefix) else parent
+    return (tag or "divergence"), split
+
+
+def auto_out_dir(args, cf_select: str, fa_select: str, director_model_name: str) -> Path:
+    """
+    Folder name built from the settings that change results, joined by '__':
+      local_<builder>__<policy>__<split>__<filter>__<oracle>__h<H>_n<N>__<source>-<select>
+    plus optional parts only when they differ from the defaults:
+      fa-<select>      factual follow-on rule, if not the default
+      dir-<model>      generated-director model, if different from the Builder
+      fpol-<policy>    follow-on policy .pt, if not the policy behind the divergence data
+      skipSilent / seed<k> / shuf<k> / noshuffle
+    """
+    tag, split = divergence_tag(args.divergence_dir)
+    oracle = ("oracleEvery" if args.oracle_every_turn
+              else "oracle0" if args.use_oracle else "noOracle")
+    parts = [
+        f"local_{_slug(args.model)}",
+        tag,
+        split,
+        "decidable" if args.decidability_file else "unfiltered",
+        oracle,
+        f"h{args.horizon}_n{args.limit if args.limit else 'all'}",
+    ]
+    if args.horizon > 1:
+        parts.append(f"{args.followon_source}-{cf_select}")
+        default_fa = "all" if cf_select == "policy" else cf_select
+        if fa_select != default_fa:
+            parts.append(f"fa-{fa_select}")
+        if args.followon_source == "generate" and director_model_name != args.model:
+            parts.append(f"dir-{_slug(director_model_name)}")
+    if args.policy_path and args.policy_path.stem != tag:
+        parts.append(f"fpol-{_slug(args.policy_path.stem)}")
+    if args.skip_silent:
+        parts.append("skipSilent")
+    if args.seed != 0:
+        parts.append(f"seed{args.seed}")
+    if args.no_shuffle:
+        parts.append("noshuffle")
+    elif args.shuffle_seed != 42:
+        parts.append(f"shuf{args.shuffle_seed}")
+
+    root = args.out_root or (args.divergence_dir.parent.parent / "multiTurn")
+    return root / "__".join(parts)
+
+
+def unique_out_dir(path: Path, overwrite: bool) -> Path:
+    """Never write into a folder that already holds results unless asked to."""
+    def has_results(p: Path) -> bool:
+        return p.exists() and any(p.iterdir())
+    if overwrite or not has_results(path):
+        return path
+    i = 2
+    while has_results(path.with_name(f"{path.name}__run{i}")):
+        i += 1
+    return path.with_name(f"{path.name}__run{i}")
+
+
+# --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
 def main() -> None:
@@ -1309,7 +1521,15 @@ def main() -> None:
     )
     ap.add_argument("--divergence-dir", required=True, type=Path)
     ap.add_argument("--structures", required=True, type=Path)
-    ap.add_argument("--out-dir", required=True, type=Path)
+    ap.add_argument("--out-dir", type=Path, default=None,
+                    help="Output folder. Default: named automatically from the run settings "
+                         "under --out-root (see auto_out_dir).")
+    ap.add_argument("--out-root", type=Path, default=None,
+                    help="Parent folder for auto-named outputs. Default: 'multiTurn' next to the "
+                         "divergenceData_* folder.")
+    ap.add_argument("--overwrite", action="store_true",
+                    help="Reuse the output folder even if it already has results (default: a "
+                         "new __runN folder is used instead).")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--base-url", default=DEFAULT_BASE_URL)
     ap.add_argument("--dataset", default="Abhijnan/craft-benchmark-lean")
@@ -1377,14 +1597,38 @@ def main() -> None:
     ap.add_argument("--skip-silent", action="store_true")
     ap.add_argument("--use-oracle", action="store_true",
                     help="Pass CRAFT oracle_moves at step 0 only (see module docstring).")
+    ap.add_argument("--oracle-every-turn", action="store_true",
+                    help="Oracle candidates at EVERY turn: step 0 uses CRAFT's logged oracle_moves "
+                         "(history); each follow-on turn regenerates them for that arm's own board "
+                         "with oracle.py. Implies --use-oracle.")
     ap.add_argument("--skip-preflight", action="store_true")
     args = ap.parse_args()
 
     if args.horizon < 1:
         sys.exit("--horizon must be >= 1")
+    if args.oracle_every_turn:
+        args.use_oracle = True
 
     cf_select = args.followon_select
     fa_select = args.factual_followon_select or ("all" if cf_select == "policy" else cf_select)
+
+    # Output folder: explicit --out-dir wins; otherwise build the name from the
+    # settings so runs never collide. Either way, never overwrite silently.
+    _dir_model = args.director_model or args.model
+    out_explicit = args.out_dir is not None
+    if not out_explicit:
+        args.out_dir = auto_out_dir(args, cf_select, fa_select, _dir_model)
+    args.out_dir = unique_out_dir(args.out_dir, args.overwrite)
+    writes_output = not (args.policy_check_only or args.preview_director_prompt or args.inspect_row)
+    if writes_output:
+        print(f"[out] {'Output folder' if out_explicit else 'Auto-named output folder'}: {args.out_dir}")
+
+    div_tag, _ = divergence_tag(args.divergence_dir)
+    if args.policy_path and args.policy_path.stem != div_tag:
+        print(f"[warn] Follow-on policy '{args.policy_path.stem}' is not the policy that produced "
+              f"this divergence data ('{div_tag}'). Step 0 uses the logged picks of '{div_tag}', "
+              f"follow-on turns would use a different policy, and the reproduction check will "
+              f"likely fail. Intended only if you are deliberately mixing policies.")
     needs_policy = args.policy_check_only or "policy" in (cf_select, fa_select)
     if needs_policy and args.policy_path is None:
         sys.exit("--policy-path is required for --followon-select policy / --policy-check-only.")
@@ -1451,6 +1695,19 @@ def main() -> None:
     target_by_id = {s["id"]: s["structure"] for s in struct_data}
     struct_by_id = {s["id"]: s for s in struct_data}
 
+    oracle_regen = None
+    if args.oracle_every_turn:
+        oracle_regen = OracleRegenerator()
+        missing = [s["id"] for s in struct_data
+                   if target_spans_for(s) is None and structure_has_large_blocks(s["structure"])]
+        if missing:
+            sys.exit(f"[oracle] {len(missing)} structures have large blocks but no target spans "
+                     f"(looked for {TARGET_SPAN_KEYS}). Keys in the first entry: "
+                     f"{sorted(struct_data[0].keys())}. Without target spans, large-block "
+                     f"placements can't be enumerated.")
+        print("[oracle] --oracle-every-turn: step 0 uses CRAFT oracle_moves; follow-on turns "
+              "regenerate candidates for each arm's board with oracle.py.")
+
     if LocalDirectorAgent is not None:
         # Fail now, not 20 turns in, if target views can't be built.
         try:
@@ -1480,6 +1737,9 @@ def main() -> None:
             "source": args.followon_source,
             "select": select,
             "policy": policy,
+            "oracle": oracle_regen,
+            "target_raw": struct_entry["structure"],
+            "target_spans": target_spans_for(struct_entry),
             "sat_fn": make_sat_fn(struct_entry["structure"]),
             "conversation_field": conversation_field,
             "max_history_chars": args.max_history_chars or None,
@@ -1520,7 +1780,8 @@ def main() -> None:
         max_retries=args.max_retries,
     )
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    if writes_output:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
 
     all_turns_counter: Dict[str, List[Dict]] = defaultdict(list)
     stats: Dict[str, int] = defaultdict(int)
@@ -1533,6 +1794,7 @@ def main() -> None:
     deltas_by_director: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
     deltas_by_move_type: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
     horizon_reached_counts: Dict[int, int] = defaultdict(int)
+    oracle_adherence: Dict[int, Dict[str, List[bool]]] = defaultdict(lambda: defaultdict(list))
     t_start = time.time()
 
     for count, turn in enumerate(turns, start=1):
@@ -1591,6 +1853,26 @@ def main() -> None:
         oracle_moves = json.loads(row["oracle_moves"]) if args.use_oracle else None
         director_label = director_label_from_combo(cf_msg["modelCombo"])
 
+        oracle_check = None
+        if oracle_regen is not None:
+            # Regenerate on the historical pre-move board and compare with what
+            # CRAFT logged, to validate the regeneration used at follow-on turns.
+            regen, _ = oracle_regen.candidates(
+                parse_board(cf_msg["structureBefore"]), json.loads(row["spans_before"]),
+                target, target_spans_for(struct_by_id[row["structure_id"]]))
+            logged_keys = {oracle_move_key(c) for c in usable_candidates(oracle_moves)}
+            regen_keys = {oracle_move_key(c) for c in regen}
+            oracle_check = {
+                "logged": len(logged_keys), "regenerated": len(regen_keys),
+                "match": logged_keys == regen_keys,
+                "only_logged": [list(k) for k in sorted(logged_keys - regen_keys, key=str)],
+                "only_regenerated": [list(k) for k in sorted(regen_keys - logged_keys, key=str)],
+            }
+            stats["oracle_check_n"] += 1
+            stats["oracle_check_agree"] += int(oracle_check["match"])
+            print(f"  [oracle check] logged={len(logged_keys)} regenerated={len(regen_keys)} "
+                  f"{'MATCH' if oracle_check['match'] else 'DIFFER'}")
+
         policy_check = None
         if policy is not None:
             # Rebuild exactly what the policy saw when it made the logged pick:
@@ -1632,6 +1914,8 @@ def main() -> None:
             "followon_select": cf_select,
             "factual_followon_select": fa_select,
             "policy_check": policy_check,
+            "oracle_every_turn": args.oracle_every_turn,
+            "oracle_check": oracle_check,
             "director_generation_model": director_model_name if LocalDirectorAgent else None,
             "builder_backend": "ollama",
             "builder_model": args.model,
@@ -1694,6 +1978,13 @@ def main() -> None:
                 if s.get("selection", {}).get("mode") == "policy":
                     stats["fa_policy_steps"] += 1
                     stats["fa_policy_picked_silent"] += int(s["selection"]["picked_silent"])
+
+        for arm_name in ("counterfactual", "factual"):
+            for s_ in record.get(arm_name, {}).get("steps", []):
+                if s_.get("oracle_adherent") is not None:
+                    oracle_adherence[s_["step"]][arm_name].append(bool(s_["oracle_adherent"]))
+                if s_.get("span_recorded") is False:
+                    stats["span_not_recorded"] += 1
 
         if run_cf and run_fa:
             cf_steps = record["counterfactual"]["steps"]
@@ -1796,6 +2087,8 @@ def main() -> None:
     silent_rate = stats["silent_director"] / max(len(turns), 1)
 
     summary = {
+        "out_dir": str(args.out_dir),
+        "run_args": {k: (str(v) if isinstance(v, Path) else v) for k, v in sorted(vars(args).items())},
         "builder_backend": "ollama",
         "builder_model": args.model,
         "base_url": args.base_url,
@@ -1824,6 +2117,18 @@ def main() -> None:
         "ground_truth_board_source": after_key or (f"next turn's {before_key}" if before_key else None),
         "decidability_file": str(args.decidability_file) if args.decidability_file else None,
         "use_oracle": args.use_oracle,
+        "oracle_every_turn": args.oracle_every_turn,
+        "oracle_regeneration_check": ({
+            "n": stats["oracle_check_n"], "match": stats["oracle_check_agree"],
+            "rate": round(stats["oracle_check_agree"] / stats["oracle_check_n"], 4)
+            if stats["oracle_check_n"] else None,
+        } if args.oracle_every_turn else None),
+        "oracle_adherence_by_step": {
+            f"t+{k}": {arm: {"n": len(v), "rate": round(sum(v) / len(v), 4) if v else None}
+                       for arm, v in sorted(arms.items())}
+            for k, arms in sorted(oracle_adherence.items())
+        } if args.use_oracle else None,
+        "large_spans_not_recorded": stats["span_not_recorded"] if args.oracle_every_turn else None,
         "divergence_dir": str(args.divergence_dir),
         "turns_seen": len(turns),
         "turns_scored": processed,
@@ -1872,6 +2177,8 @@ def main() -> None:
           f"follow-on={args.followon_source}, cf={cf_select}, fa={fa_select}; counterfactual − factual)")
     print("=" * 76)
     for k, v in summary.items():
+        if k == "run_args":
+            continue
         if not k.startswith(("paired_delta", "ground_truth_by_step", "full_horizon_turns")):
             print(f"  {k:<28} {v}")
     if "paired_delta_by_step" in summary:
@@ -1906,6 +2213,12 @@ def main() -> None:
         print(f"  ⚠ The loaded policy reproduced only {stats['policy_check_agree']}/"
               f"{stats['policy_check_n']} logged divergence picks. Its follow-on choices may not be\n"
               f"    the trained policy's. Run --policy-check-only and fix the config first.")
+    if args.oracle_every_turn and stats["oracle_check_n"] and \
+            stats["oracle_check_agree"] / stats["oracle_check_n"] < 0.9:
+        print(f"  ⚠ Regenerated oracle moves matched CRAFT's logged ones on only "
+              f"{stats['oracle_check_agree']}/{stats['oracle_check_n']} divergence turns. Check\n"
+              f"    'oracle_check' in the records (target spans / spans format) before trusting\n"
+              f"    the follow-on oracle candidates.")
     print(f"  Wrote {len(all_turns_counter)} game files to {args.out_dir}")
 
 
