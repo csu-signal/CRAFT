@@ -124,6 +124,7 @@ import argparse
 import ast
 import contextlib
 import copy
+import hashlib
 import importlib
 import io
 import json
@@ -134,6 +135,7 @@ import re
 import statistics
 import sys
 import time
+import traceback
 import urllib.error
 import urllib.request
 from collections import defaultdict
@@ -238,12 +240,21 @@ def extract_move_line(text: str) -> Optional[str]:
     return None
 
 
+# FIX: these clarifications are produced by this script, not by the model.
+# "Error in move generation" used to be counted as a genuine CLARIFY, which
+# hid every exception inside generate_move from the parse-failure stats.
+NON_MODEL_CLARIFY_PREFIXES = (
+    "Could not parse response", "Parse error",
+    "Error in move generation", "Empty response from local model", "No response from local model",
+)
+
+
 def is_parse_failure(move: Dict) -> bool:
-    """A real CLARIFY is a valid answer; a parser giving up is not."""
+    """A real CLARIFY is a valid answer; a parser giving up (or crashing) is not."""
     if move.get("action") != "clarify":
         return False
     text = str(move.get("clarification", ""))
-    return text.startswith("Could not parse response") or text.startswith("Parse error")
+    return text.startswith(NON_MODEL_CLARIFY_PREFIXES)
 
 
 # --------------------------------------------------------------------------- #
@@ -289,6 +300,22 @@ def _candidate_move_dict(cand: Dict) -> Dict:
     return cand.get("move", cand)
 
 
+def builder_candidates(cands: Optional[List[Dict]]) -> Optional[List[Dict]]:
+    """FIX: flat {action, block, position, layer, span_to} dicts, the shape the
+    CRAFT oracle_moves (and BuilderAgent.create_builder_prompt) use. Regenerated
+    candidates come wrapped as {"move": {...}, "flag": ..., "overall_progress": ...};
+    passing those to create_builder_prompt raised KeyError('action') before the
+    model was ever called, on every follow-on step."""
+    if cands is None:
+        return None
+    out = []
+    for c in cands:
+        m = _candidate_move_dict(c)
+        if isinstance(m, dict) and "action" in m:
+            out.append({k: m.get(k) for k in ("action", "block", "position", "layer", "span_to")})
+    return out
+
+
 def compute_oracle_adherence(move: Dict, oracle_moves: Optional[List[Dict]]) -> Optional[bool]:
     if not oracle_moves:
         return None
@@ -321,6 +348,9 @@ class LocalBuilderAgent(BuilderAgent):
         self.max_retries = max_retries
         self.last_raw_text: str = ""
         self.last_attempts: int = 0
+        self.last_prompt: str = ""
+        self.last_system: str = ""
+        self.last_error: Optional[str] = None
 
     def _chat(self, messages: List[Dict]) -> str:
         kwargs = dict(
@@ -346,6 +376,10 @@ class LocalBuilderAgent(BuilderAgent):
     ) -> Dict:
         self.last_raw_text = ""
         self.last_attempts = 0
+        self.last_prompt = ""
+        self.last_system = ""
+        self.last_error = None
+        oracle_moves = builder_candidates(oracle_moves)  # FIX: defensive, see builder_candidates
         try:
             prompt = self.create_builder_prompt(
                 director_discussion,
@@ -354,6 +388,7 @@ class LocalBuilderAgent(BuilderAgent):
                 oracle_moves=oracle_moves,
                 builderPromptAddin=BuilderType.Base,
             )
+            self.last_prompt = prompt
             if check_prompt_tokens:
                 warn_if_prompt_may_be_truncated(prompt)
 
@@ -377,6 +412,7 @@ class LocalBuilderAgent(BuilderAgent):
                 "no code fences, no explanation after the line."
             )
 
+            self.last_system = system_content
             messages = [
                 {"role": "system", "content": system_content},
                 {"role": "user", "content": prompt},
@@ -423,7 +459,10 @@ class LocalBuilderAgent(BuilderAgent):
             return last_move
 
         except Exception as exc:  # noqa: BLE001
-            return {"action": "clarify", "clarification": f"Error in move generation: {exc}"}
+            # FIX: keep the traceback; a bare KeyError message ("'action'") is not diagnosable.
+            self.last_error = traceback.format_exc()
+            print(f"  [builder error] {type(exc).__name__}: {exc}\n{self.last_error}")
+            return {"action": "clarify", "clarification": f"Error in move generation: {type(exc).__name__}: {exc}"}
 
 
 # --------------------------------------------------------------------------- #
@@ -686,6 +725,7 @@ def execute_step(
     the start of the rollout so arms never share state.
     """
     board_before = copy.deepcopy(board)
+    oracle_moves = builder_candidates(oracle_moves)  # FIX: flat candidates for prompt, adherence and the record
 
     move = agent.generate_move(
         director_discussion=utterance,
@@ -748,6 +788,13 @@ def execute_step(
         "partial_views": partial_views,
         "llm_attempts": attempts,
         "raw_model_text": raw_text,
+        # FIX: audit trail. The hash shows whether two arms' Builder inputs
+        # differ; the full prompt is kept for the divergence step (step 0).
+        "builder_prompt_sha1": hashlib.sha1(
+            (agent.last_system + "\n" + agent.last_prompt).encode("utf-8")).hexdigest() if agent.last_prompt else None,
+        "builder_prompt": (agent.last_prompt if step_idx == 0 else None),
+        "builder_system_prompt": (agent.last_system if step_idx == 0 else None),
+        "builder_error": agent.last_error,
     }
     return result, board, spans
 
@@ -1146,11 +1193,29 @@ def base_conversation(row: Dict, conv_field: Optional[str]) -> str:
             already_included = True
             continue
         lines.append(f"{d}: {text}")
-    if already_included and not _SNAPSHOT_WARNED:
-        _SNAPSHOT_WARNED = True
-        print(f"[warn] '{conv_field}' already contains the divergence turn's director messages, so it "
-              f"may also contain the HISTORICAL Builder reply to them. Check with "
-              f"--preview-director-prompt; use --conversation-field none to drop it.")
+    if already_included and convo:
+        # FIX: CRAFT's conversation_snapshot for turn t ends with the HISTORICAL
+        # Builder's turn-t reply (including a "Current board" that matches
+        # neither arm). Each arm appends its own turn-t Builder line, so keeping
+        # the historical one gave follow-on directors two contradictory replies
+        # and a wrong board. Cut the snapshot after the last line holding one
+        # of this turn's director messages.
+        cut = -1
+        for d, text in historical_director_messages(row).items():
+            if is_silent_text(text):
+                continue
+            i = convo.rfind(text[:60])
+            if i >= 0:
+                end = convo.find("\n", i)
+                cut = max(cut, len(convo) if end < 0 else end)
+        if 0 <= cut < len(convo):
+            dropped = convo[cut:].strip()
+            convo = convo[:cut]
+            lines[0] = convo
+            if not _SNAPSHOT_WARNED:
+                _SNAPSHOT_WARNED = True
+                print(f"[fix] '{conv_field}' contained the divergence turn's historical Builder reply; "
+                      f"dropped {len(dropped)} chars after the turn's director messages, e.g.: {dropped[:120]!r}")
     return "\n".join(lines)
 
 
@@ -1175,6 +1240,24 @@ def tail(text: str, max_chars: Optional[int]) -> str:
     return text
 
 
+_TAG_RESIDUE = re.compile(r"^\s*[^\w\s]{0,2}\s*/?message\s*>?\s*", re.IGNORECASE)
+_FAKE_TURN = re.compile(r"^\s*(?:Builder|D[123])\s*:", re.MULTILINE)
+
+
+def clean_director_text(text: str) -> str:
+    """FIX: the local director often leaves '<message>' residue ("$message>",
+    "=message>", ":message>") and keeps writing the dialogue: invented Builder
+    replies with fake board states, or other directors' lines. Those were
+    appended to the shared conversation and seen by later directors and by the
+    policy. Keep only this director's own message."""
+    t = _TAG_RESIDUE.sub("", text or "", count=1)
+    t = re.sub(r"</?message>", "", t, flags=re.IGNORECASE)
+    m = _FAKE_TURN.search(t)
+    if m:
+        t = t[:m.start()]
+    return t.strip()
+
+
 def generate_director_messages(directors: Dict, board, views: Dict, conversation: str,
                                max_history_chars: Optional[int]) -> Dict[str, Dict]:
     """
@@ -1188,9 +1271,11 @@ def generate_director_messages(directors: Dict, board, views: Dict, conversation
         parsed = directors[d].generate_response(
             copy.deepcopy(board), views[d], tail(running, max_history_chars), AVAILABLE_BLOCKS
         )
-        text = (parsed.get("public_message") or "").strip()
+        raw_text = (parsed.get("public_message") or "").strip()
+        text = clean_director_text(raw_text)
         out[d] = {
             "text": text,
+            "text_raw": raw_text if raw_text != text else None,
             "thinking": parsed.get("internal_thinking"),
             "source": "generated",
             "archetype": directors[d].archetype,
