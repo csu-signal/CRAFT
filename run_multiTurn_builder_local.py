@@ -7,6 +7,9 @@ Offline / no-API-cost version of `run_single_builder.py`, running BOTH arms of
 each divergence turn through the same local Builder, and now rolling each arm
 forward for H turns (default 3) instead of one.
 
+The Builder and the generated directors can also run on a Claude model over
+the Anthropic API (--backend anthropic); see "Backends" below.
+
 Rollout design
 --------------
 For every divergence turn t the harness runs two arms:
@@ -21,12 +24,13 @@ and its own conversation. Two independent switches control those turns:
 
   --followon-source generate (default)
       New D1/D2/D3 utterances every follow-on turn, from the DirectorAgent
-      prompt and parser (imported from --director-module, served by Ollama),
-      conditioned on the arm's board, each director's target view, and the
-      arm's own conversation. Archetypes come from CRAFT's D*_archetype so the
-      directors keep their historical personalities. Directors speak in order
-      D1, D2, D3 and each sees who spoke before it. This gives a continuous
-      causal chain from the divergence onward.
+      prompt and parser (imported from --director-module, served by the
+      director backend), conditioned on the arm's board, each director's
+      target view, and the arm's own conversation. Archetypes come from
+      CRAFT's D*_archetype so the directors keep their historical
+      personalities. Directors speak in order D1, D2, D3 and each sees who
+      spoke before it. This gives a continuous causal chain from the
+      divergence onward.
   --followon-source history
       Replay the logged CRAFT D1-D3 messages for turn t+k.
 
@@ -59,6 +63,38 @@ and its own conversation. Two independent switches control those turns:
 In every mode the ONLY difference between the arms is the step-0 director
 choice; everything downstream is the consequence of that choice.
 
+Backends
+--------
+  --backend ollama (default)
+      Builder and directors served by a local Ollama model through its
+      OpenAI-compatible endpoint (--base-url). Seeded and free.
+  --backend anthropic
+      Builder and directors served by a Claude model through the Anthropic
+      Messages API. Needs `pip install anthropic` and ANTHROPIC_API_KEY (or
+      --anthropic-api-key). Default model: claude-sonnet-5-5.
+  --director-backend {ollama,anthropic}
+      Serve the generated directors from a different backend than the Builder
+      (e.g. Claude Builder, local directors). Defaults to --backend.
+
+  Things that differ on the Claude API:
+    * No sampling seed. Two arms with identical prompts can still differ, so
+      compare `builder_prompt_sha1` before attributing a difference to the
+      step-0 choice.
+    * Newer Claude models reject non-default temperature. The script sends
+      --temperature / --director-temperature, and if the API rejects them it
+      drops them for the rest of the run (logged, and listed under
+      api_usage.params_dropped in the summary). The same happens if the
+      installed SDK refuses the keyword (TypeError, before any request is
+      sent). --no-send-temperature skips the attempt.
+    * Adaptive thinking counts against max_tokens, so the defaults rise to
+      4096 for Claude (400/500 for Ollama). You pay only for tokens generated.
+      --effort {low,medium,high,xhigh,max} sets the effort level where the
+      model supports it (dropped automatically if not).
+    * Rate limits / overload (429/529) are retried by the SDK
+      (--api-max-retries); --min-request-interval adds a fixed gap between
+      calls if you keep hitting limits.
+    * Token usage per role (builder / director) is written to the summary.
+
 Ground-truth checks
 -------------------
 At every step each arm's board is compared against:
@@ -87,7 +123,9 @@ Caveats that matter for interpretation
     per-step `n` in the summary shows this. Compare step 2 against step 0
     restricted to the same turns (`final_full_horizon`) rather than pooled.
   * Cost: 2 arms x H steps LLM calls per divergence turn (6x the old
-    single-arm harness at H=3). Smoke-test with --limit first.
+    single-arm harness at H=3), plus 3 director calls per follow-on step with
+    --followon-source generate. The script prints an upper bound on the number
+    of calls before starting. Smoke-test with --limit first.
 
 Everything else (`create_builder_prompt`, `parse_builder_response`,
 `_place_block`, `_remove_block`, `getParticalView`, `calculate_iou_board`) is
@@ -96,8 +134,13 @@ cannot drift apart.
 
 Setup
 -----
+    # Local:
     ollama pull qwen2.5:7b-instruct
     OLLAMA_CONTEXT_LENGTH=8192 ollama serve
+
+    # Claude API:
+    pip install anthropic
+    export ANTHROPIC_API_KEY=...
 
 Usage
 -----
@@ -116,6 +159,14 @@ Usage
 
     # -> .../phase1_refactor/multiTurn/local_qwen2.5-7b-instruct__policy_seed77_b0.9_kl0.1_
     #    closs0.01_nosamp_hpt0.4__validation__unfiltered__oracleEvery__h5_n50__generate-policy
+
+    # 3) Same run with Claude as Builder and directors:
+    python run_multiTurn_builder_local.py ... --backend anthropic --model claude-sonnet-5-5
+    # -> .../multiTurn/claude_claude-sonnet-5-5__policy_seed77_...
+
+    # Claude Builder, local Ollama directors:
+    python run_multiTurn_builder_local.py ... --backend anthropic \
+        --director-backend ollama --director-model qwen2.5:7b-instruct
 """
 
 from __future__ import annotations
@@ -158,6 +209,12 @@ from run_single_builder import (
 
 DEFAULT_BASE_URL = "http://localhost:11434/v1"
 DEFAULT_MODEL = "qwen2.5:7b-instruct"
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5"
+BACKENDS = ("ollama", "anthropic")
+DEFAULT_MODEL_BY_BACKEND = {"ollama": DEFAULT_MODEL, "anthropic": DEFAULT_CLAUDE_MODEL}
+# Builder / director max_tokens when not given on the command line. Claude's
+# adaptive thinking draws on the same budget, so it needs more headroom.
+DEFAULT_MAX_TOKENS = {"ollama": (400, 500), "anthropic": (4096, 4096)}
 AVAILABLE_BLOCKS = ["gs", "gl", "bs", "bl", "rs", "rl", "ys", "yl", "os", "ol"]
 DIRECTORS = ("D1", "D2", "D3")
 
@@ -178,6 +235,204 @@ UTTERANCE_KEYS = (
 DIRECTOR_MESSAGES = "directors"
 BOARD_AFTER_KEYS = ("structure_after", "structureAfter", "board_after", "gt_structure_after")
 BOARD_BEFORE_KEYS = ("structure_before", "structureBefore", "board_before")
+
+
+# --------------------------------------------------------------------------- #
+# Chat backends (shared by the Builder and the generated directors)
+# --------------------------------------------------------------------------- #
+def _new_usage() -> Dict[str, int]:
+    return {"calls": 0, "input_tokens": 0, "output_tokens": 0,
+            "max_tokens_stops": 0, "refusals": 0, "errors": 0}
+
+
+class ChatBackend:
+    """
+    Minimal chat transport. `complete` takes a system prompt and a list of
+    user/assistant messages (alternating, starting with user) and returns the
+    model's text. Usage is tracked per role ('builder' / 'director').
+    """
+    name = "base"
+    supports_seed = False
+
+    def __init__(self):
+        self.usage: Dict[str, Dict[str, int]] = defaultdict(_new_usage)
+
+    def complete(self, model: str, system: str, messages: List[Dict], temperature: float,
+                 max_tokens: int, seed: Optional[int] = None, role: str = "builder") -> str:
+        raise NotImplementedError
+
+    def usage_summary(self) -> Dict:
+        return {role: dict(u) for role, u in self.usage.items()}
+
+
+class OllamaBackend(ChatBackend):
+    """Ollama's OpenAI-compatible endpoint (the original transport)."""
+    name = "ollama"
+    supports_seed = True
+
+    def __init__(self, base_url: str = DEFAULT_BASE_URL, api_key: str = "ollama",
+                 timeout: float = 300.0):
+        super().__init__()
+        self.client = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout)
+
+    def complete(self, model, system, messages, temperature, max_tokens, seed=None, role="builder"):
+        kwargs = dict(
+            model=model,
+            messages=[{"role": "system", "content": system}] + list(messages),
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        if seed is not None:
+            kwargs["seed"] = seed
+        u = self.usage[role]
+        try:
+            completion = self.client.chat.completions.create(**kwargs)
+        except Exception:
+            u["errors"] += 1
+            raise
+        u["calls"] += 1
+        usage = getattr(completion, "usage", None)
+        if usage is not None:
+            u["input_tokens"] += getattr(usage, "prompt_tokens", 0) or 0
+            u["output_tokens"] += getattr(usage, "completion_tokens", 0) or 0
+        if not completion or not completion.choices:
+            return ""
+        choice = completion.choices[0]
+        if getattr(choice, "finish_reason", None) == "length":
+            u["max_tokens_stops"] += 1
+        return (choice.message.content or "").strip()
+
+
+class AnthropicBackend(ChatBackend):
+    """
+    Claude over the Anthropic Messages API.
+
+    * The client is created on first use, so --policy-check-only and
+      --preview-director-prompt work without an API key.
+    * temperature / effort are sent if requested; if the model rejects one
+      with a 400, it is dropped for the rest of the run and logged.
+    * Only text blocks are returned (thinking blocks are skipped).
+    """
+    name = "anthropic"
+    supports_seed = False
+
+    def __init__(self, api_key: Optional[str] = None, timeout: float = 300.0,
+                 max_retries: int = 8, send_temperature: bool = True,
+                 effort: Optional[str] = None, min_interval: float = 0.0):
+        super().__init__()
+        self._api_key = api_key
+        self._timeout = timeout
+        self._max_retries = max_retries
+        self._client = None
+        self._sdk = None
+        self.send_temperature = send_temperature
+        self.effort = effort
+        self.min_interval = max(0.0, min_interval)
+        self._last_call = 0.0
+        self.params_dropped: Dict[str, str] = {}
+        self._warned_max_tokens = False
+
+    @property
+    def sdk(self):
+        if self._sdk is None:
+            try:
+                import anthropic  # noqa: WPS433
+            except ImportError:
+                sys.exit("[anthropic] The 'anthropic' package is not installed. Run:  pip install anthropic")
+            self._sdk = anthropic
+        return self._sdk
+
+    def api_key(self) -> Optional[str]:
+        return self._api_key or os.environ.get("ANTHROPIC_API_KEY")
+
+    @property
+    def client(self):
+        if self._client is None:
+            key = self.api_key()
+            if not key:
+                sys.exit("[anthropic] No API key. Set ANTHROPIC_API_KEY or pass --anthropic-api-key.")
+            self._client = self.sdk.Anthropic(api_key=key, timeout=self._timeout,
+                                              max_retries=self._max_retries)
+        return self._client
+
+    def _throttle(self) -> None:
+        if self.min_interval:
+            wait = self._last_call + self.min_interval - time.time()
+            if wait > 0:
+                time.sleep(wait)
+        self._last_call = time.time()
+
+    def _drop(self, param: str, exc: Exception) -> None:
+        self.params_dropped[param] = str(exc)[:300]
+        print(f"  [anthropic] model rejected '{param}'; dropping it for the rest of the run. "
+              f"({str(exc)[:160]})")
+
+    def complete(self, model, system, messages, temperature, max_tokens, seed=None, role="builder"):
+        kwargs = dict(model=model, system=system, messages=list(messages), max_tokens=max_tokens)
+        if self.send_temperature and temperature is not None and "temperature" not in self.params_dropped:
+            kwargs["temperature"] = temperature
+        if self.effort and "effort" not in self.params_dropped:
+            # Sent through extra_body so this works across SDK versions.
+            kwargs["extra_body"] = {"output_config": {"effort": self.effort}}
+
+        u = self.usage[role]
+        while True:
+            self._throttle()
+            try:
+                resp = self.client.messages.create(**kwargs)
+                break
+            except self.sdk.BadRequestError as exc:
+                msg = str(exc).lower()
+                if "temperature" in kwargs and "temperature" in msg:
+                    self._drop("temperature", exc)
+                    kwargs.pop("temperature")
+                    continue
+                if "extra_body" in kwargs and ("effort" in msg or "output_config" in msg):
+                    self._drop("effort", exc)
+                    kwargs.pop("extra_body")
+                    continue
+                u["errors"] += 1
+                raise
+            except TypeError as exc:
+                # Some SDK versions don't accept these keywords at all; the
+                # call never reaches the API, so dropping them costs nothing.
+                msg = str(exc)
+                if "temperature" in kwargs and "'temperature'" in msg:
+                    self._drop("temperature", exc)
+                    kwargs.pop("temperature")
+                    continue
+                if "extra_body" in kwargs and "'extra_body'" in msg:
+                    self._drop("effort", exc)
+                    kwargs.pop("extra_body")
+                    continue
+                u["errors"] += 1
+                raise
+            except Exception:
+                u["errors"] += 1
+                raise
+
+        u["calls"] += 1
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            u["input_tokens"] += getattr(usage, "input_tokens", 0) or 0
+            u["output_tokens"] += getattr(usage, "output_tokens", 0) or 0
+        stop = getattr(resp, "stop_reason", None)
+        if stop == "max_tokens":
+            u["max_tokens_stops"] += 1
+            if not self._warned_max_tokens:
+                self._warned_max_tokens = True
+                print(f"  [anthropic] a {role} response hit max_tokens={max_tokens}. If outputs come "
+                      f"back empty or cut off, raise --max-tokens / --director-max-tokens or lower --effort.")
+        elif stop == "refusal":
+            u["refusals"] += 1
+        return "".join(
+            getattr(b, "text", "") for b in (resp.content or []) if getattr(b, "type", None) == "text"
+        ).strip()
+
+    def usage_summary(self) -> Dict:
+        out = super().usage_summary()
+        out["params_dropped"] = dict(self.params_dropped)
+        return out
 
 
 # --------------------------------------------------------------------------- #
@@ -202,6 +457,31 @@ def preflight_ollama(base_url: str, model: str, timeout: float = 10.0) -> None:
             f"            Run:  ollama pull {model}"
         )
     print(f"[preflight] Ollama reachable at {root}; model '{model}' present.")
+
+
+def preflight_anthropic(backend: AnthropicBackend, model: str) -> None:
+    """Check the key and the model id before spending anything."""
+    if not backend.api_key():
+        sys.exit("[preflight] No Anthropic API key. Set ANTHROPIC_API_KEY or pass --anthropic-api-key.")
+    sdk = backend.sdk
+    try:
+        backend.client.models.retrieve(model)
+    except sdk.AuthenticationError as exc:
+        sys.exit(f"[preflight] Anthropic API key rejected ({exc}).")
+    except sdk.NotFoundError:
+        sys.exit(f"[preflight] Claude model '{model}' not found. Check the model id "
+                 f"(e.g. claude-sonnet-5-5, claude-haiku-5-5, claude-opus-5-5).")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[preflight] Could not verify model '{model}' ({type(exc).__name__}: {exc}); continuing.")
+        return
+    print(f"[preflight] Anthropic API reachable; model '{model}' available.")
+
+
+def preflight(backend: ChatBackend, model: str, base_url: str) -> None:
+    if isinstance(backend, AnthropicBackend):
+        preflight_anthropic(backend, model)
+    else:
+        preflight_ollama(base_url, model)
 
 
 def warn_if_prompt_may_be_truncated(prompt: str, assumed_ctx: int = 4096) -> None:
@@ -325,21 +605,20 @@ def compute_oracle_adherence(move: Dict, oracle_moves: Optional[List[Dict]]) -> 
 
 
 class LocalBuilderAgent(BuilderAgent):
-    """BuilderAgent pointed at Ollama's OpenAI-compatible endpoint."""
+    """BuilderAgent served by a ChatBackend (Ollama or the Claude API)."""
 
     def __init__(
         self,
+        backend: ChatBackend,
         model_name: str = DEFAULT_MODEL,
-        base_url: str = DEFAULT_BASE_URL,
-        api_key: str = "ollama",
         temperature: float = 0.1,
         max_tokens: int = 400,
         seed: Optional[int] = 0,
         max_retries: int = 2,
-        request_timeout: float = 300.0,
     ):
         # Deliberately not calling BuilderAgent.__init__ (it binds to api.openai.com).
-        self.client = OpenAI(base_url=base_url, api_key=api_key, timeout=request_timeout)
+        self.backend = backend
+        self.client = None  # all generation goes through self.backend
         self.model_name = model_name
         self.oracle_moves = None
         self.temperature = temperature
@@ -352,19 +631,12 @@ class LocalBuilderAgent(BuilderAgent):
         self.last_system: str = ""
         self.last_error: Optional[str] = None
 
-    def _chat(self, messages: List[Dict]) -> str:
-        kwargs = dict(
-            model=self.model_name,
-            messages=messages,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens,
+    def _chat(self, system: str, messages: List[Dict]) -> str:
+        return self.backend.complete(
+            self.model_name, system, messages,
+            temperature=self.temperature, max_tokens=self.max_tokens,
+            seed=self.seed, role="builder",
         )
-        if self.seed is not None:
-            kwargs["seed"] = self.seed
-        completion = self.client.chat.completions.create(**kwargs)
-        if not completion or not completion.choices:
-            return ""
-        return (completion.choices[0].message.content or "").strip()
 
     def generate_move(
         self,
@@ -389,7 +661,7 @@ class LocalBuilderAgent(BuilderAgent):
                 builderPromptAddin=BuilderType.Base,
             )
             self.last_prompt = prompt
-            if check_prompt_tokens:
+            if check_prompt_tokens and self.backend.name == "ollama":
                 warn_if_prompt_may_be_truncated(prompt)
 
             system_content_oracle = (
@@ -413,15 +685,12 @@ class LocalBuilderAgent(BuilderAgent):
             )
 
             self.last_system = system_content
-            messages = [
-                {"role": "system", "content": system_content},
-                {"role": "user", "content": prompt},
-            ]
+            messages = [{"role": "user", "content": prompt}]
 
             last_move: Dict = {"action": "clarify", "clarification": "No response from local model"}
             for attempt in range(self.max_retries + 1):
                 self.last_attempts = attempt + 1
-                raw = self._chat(messages)
+                raw = self._chat(system_content, messages)
                 self.last_raw_text = raw
                 if not raw:
                     last_move = {"action": "clarify", "clarification": "Empty response from local model"}
@@ -1034,8 +1303,8 @@ def load_director_module(module_name: str):
 def make_local_director_class(DirectorAgent):
     class LocalDirectorAgent(DirectorAgent):
         """
-        DirectorAgent served by Ollama. The prompt
-        (create_enhanced_director_prompt_with_references) and the parser
+        DirectorAgent served by a ChatBackend (Ollama or the Claude API). The
+        prompt (create_enhanced_director_prompt_with_references) and the parser
         (parse_director_response) are inherited unchanged; only the transport
         differs.
 
@@ -1046,7 +1315,7 @@ def make_local_director_class(DirectorAgent):
         historical game.
         """
 
-        def __init__(self, director_id, archetype, client, model_name,
+        def __init__(self, director_id, archetype, backend, model_name,
                      temperature=0.7, max_tokens=500, seed=None, fallback_key=""):
             self.director_id = director_id
             self.archetype_source = "craft"
@@ -1056,10 +1325,11 @@ def make_local_director_class(DirectorAgent):
             self.archetype = archetype
             self.personality = DirectorAgent.ARCHETYPES[archetype]
             self.use_api = True
-            self.provider = "ollama"
+            self.backend = backend
+            self.provider = backend.name
             self.local_model = None
             self.local_tokenizer = None
-            self.client = client
+            self.client = None  # all generation goes through self.backend
             self.model_name = model_name
             self.temperature = temperature
             self.max_tokens = max_tokens
@@ -1077,24 +1347,14 @@ def make_local_director_class(DirectorAgent):
                 current_view, target_view, conversation_history, available_blocks
             )
             self.last_prompt = prompt
-            kwargs = dict(
-                model=self.model_name,
-                messages=[
-                    # same system message as DirectorAgent._generate_with_openai
-                    {"role": "system",
-                     "content": f"You are Director {self.director_id} in a collaborative LEGO construction task."},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
-            if self.seed is not None:
-                kwargs["seed"] = self.seed
+            # same system message as DirectorAgent._generate_with_openai
+            system = f"You are Director {self.director_id} in a collaborative LEGO construction task."
             try:
-                completion = self.client.chat.completions.create(**kwargs)
-                raw = ""
-                if completion and completion.choices:
-                    raw = completion.choices[0].message.content or ""
+                raw = self.backend.complete(
+                    self.model_name, system, [{"role": "user", "content": prompt}],
+                    temperature=self.temperature, max_tokens=self.max_tokens,
+                    seed=self.seed, role="director",
+                )
             except Exception as exc:  # noqa: BLE001
                 self.last_raw = ""
                 return {"internal_thinking": f"Error in generation: {exc}",
@@ -1524,6 +1784,20 @@ def print_table(title: str, endpoints: Dict[str, Dict], indent: str = "  ") -> N
         print(f"{indent}  {name:<40}{block['n']:>5}{mean:>12}{sem:>11}{split:>12}")
 
 
+def estimate_max_calls(n_turns: int, n_arms: int, horizon: int, source: str,
+                       selects: Dict[str, str], max_retries: int) -> Tuple[int, int]:
+    """Upper bound on (builder, director) model calls, ignoring early stops.
+    Builder retries on unparseable output are counted in the builder bound."""
+    builder = director = 0
+    for select in selects.values():
+        per_followon_builder = 3 if select == "best" else 1
+        builder += 1 + (horizon - 1) * per_followon_builder
+        if source == "generate":
+            director += (horizon - 1) * 3
+    scale = n_turns * (n_arms / max(len(selects), 1))
+    return int(builder * scale * (1 + max_retries)), int(director * scale)
+
+
 # --------------------------------------------------------------------------- #
 # Automatic output folder naming
 # --------------------------------------------------------------------------- #
@@ -1545,18 +1819,20 @@ def divergence_tag(div_dir: Path) -> Tuple[str, str]:
 def auto_out_dir(args, cf_select: str, fa_select: str, director_model_name: str) -> Path:
     """
     Folder name built from the settings that change results, joined by '__':
-      local_<builder>__<policy>__<split>__<filter>__<oracle>__h<H>_n<N>__<source>-<select>
+      <local|claude>_<builder>__<policy>__<split>__<filter>__<oracle>__h<H>_n<N>__<source>-<select>
     plus optional parts only when they differ from the defaults:
       fa-<select>      factual follow-on rule, if not the default
       dir-<model>      generated-director model, if different from the Builder
+      eff-<level>      Claude effort level, if set
       fpol-<policy>    follow-on policy .pt, if not the policy behind the divergence data
       skipSilent / seed<k> / shuf<k> / noshuffle
     """
     tag, split = divergence_tag(args.divergence_dir)
     oracle = ("oracleEvery" if args.oracle_every_turn
               else "oracle0" if args.use_oracle else "noOracle")
+    backend_prefix = "local" if args.backend == "ollama" else "claude"
     parts = [
-        f"local_{_slug(args.model)}",
+        f"{backend_prefix}_{_slug(args.model)}",
         tag,
         split,
         "decidable" if args.decidability_file else "unfiltered",
@@ -1570,6 +1846,8 @@ def auto_out_dir(args, cf_select: str, fa_select: str, director_model_name: str)
             parts.append(f"fa-{fa_select}")
         if args.followon_source == "generate" and director_model_name != args.model:
             parts.append(f"dir-{_slug(director_model_name)}")
+    if args.effort and "anthropic" in (args.backend, args.director_backend):
+        parts.append(f"eff-{args.effort}")
     if args.policy_path and args.policy_path.stem != tag:
         parts.append(f"fpol-{_slug(args.policy_path.stem)}")
     if args.skip_silent:
@@ -1602,7 +1880,8 @@ def unique_out_dir(path: Path, overwrite: bool) -> Path:
 # --------------------------------------------------------------------------- #
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="Paired factual/counterfactual multi-turn Builder rollouts with a local Ollama model."
+        description="Paired factual/counterfactual multi-turn Builder rollouts with a local Ollama "
+                    "model or a Claude model over the Anthropic API."
     )
     ap.add_argument("--divergence-dir", required=True, type=Path)
     ap.add_argument("--structures", required=True, type=Path)
@@ -1615,8 +1894,27 @@ def main() -> None:
     ap.add_argument("--overwrite", action="store_true",
                     help="Reuse the output folder even if it already has results (default: a "
                          "new __runN folder is used instead).")
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    ap.add_argument("--backend", choices=BACKENDS, default="ollama",
+                    help="Where the Builder (and, by default, the generated directors) run: "
+                         "'ollama' (local, default) or 'anthropic' (Claude over the API).")
+    ap.add_argument("--director-backend", choices=BACKENDS, default=None,
+                    help="Backend for generated directors. Default: same as --backend.")
+    ap.add_argument("--model", default=None,
+                    help=f"Builder model. Default: {DEFAULT_MODEL} (ollama) or "
+                         f"{DEFAULT_CLAUDE_MODEL} (anthropic).")
+    ap.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Ollama endpoint (ollama backend only).")
+    ap.add_argument("--anthropic-api-key", default=None,
+                    help="Anthropic API key. Default: the ANTHROPIC_API_KEY environment variable.")
+    ap.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"], default=None,
+                    help="(anthropic) Effort level for models that support it. Lower is faster and "
+                         "cheaper. Dropped automatically if the model rejects it.")
+    ap.add_argument("--no-send-temperature", action="store_true",
+                    help="(anthropic) Don't send --temperature/--director-temperature. Without this "
+                         "flag they are sent, and dropped automatically if the model rejects them.")
+    ap.add_argument("--api-max-retries", type=int, default=8,
+                    help="(anthropic) SDK retries on rate-limit/overload/connection errors.")
+    ap.add_argument("--min-request-interval", type=float, default=0.0,
+                    help="(anthropic) Minimum seconds between API calls, to stay under rate limits.")
     ap.add_argument("--dataset", default="Abhijnan/craft-benchmark-lean")
     ap.add_argument("--arms", choices=["both", "counterfactual", "factual"], default="both")
     ap.add_argument("--horizon", type=int, default=3,
@@ -1634,10 +1932,12 @@ def main() -> None:
     ap.add_argument("--director-module", default="director_agent_local",
                     help="Module (file name without .py) that defines DirectorAgent.")
     ap.add_argument("--director-model", default=None,
-                    help="Ollama model for generated directors (default: same as --model).")
+                    help="Model for generated directors. Default: same as --model when the "
+                         "director backend matches the Builder's, otherwise that backend's default.")
     ap.add_argument("--director-temperature", type=float, default=0.7,
                     help="Matches DirectorAgent's API temperature.")
-    ap.add_argument("--director-max-tokens", type=int, default=500)
+    ap.add_argument("--director-max-tokens", type=int, default=None,
+                    help="Default: 500 (ollama) or 4096 (anthropic, to leave room for thinking).")
     ap.add_argument("--conversation-field", default=None,
                     help="CRAFT column with the dialogue so far, used as director conversation "
                          "history. Auto-detected; pass 'none' to start from the divergence turn only.")
@@ -1663,7 +1963,7 @@ def main() -> None:
     ap.add_argument("--policy-check-only", action="store_true",
                     help="Rebuild the policy's input at every divergence turn, check its argmax "
                          "matches the logged 'predicted' director, report the rate and exit. "
-                         "No Ollama calls.")
+                         "No model calls.")
     ap.add_argument("--preview-director-prompt", action="store_true",
                     help="Print the D1 prompt for the first usable turn and exit (no model calls).")
     ap.add_argument("--followon-utterance-field", default=None,
@@ -1672,12 +1972,15 @@ def main() -> None:
     ap.add_argument("--inspect-row", action="store_true",
                     help="Print one CRAFT row's columns and the auto-detected fields, then exit.")
     ap.add_argument("--temperature", type=float, default=0.1)
-    ap.add_argument("--max-tokens", type=int, default=400)
-    ap.add_argument("--seed", type=int, default=0, help="Ollama sampling seed; -1 disables.")
+    ap.add_argument("--max-tokens", type=int, default=None,
+                    help="Builder max tokens. Default: 400 (ollama) or 4096 (anthropic).")
+    ap.add_argument("--seed", type=int, default=0,
+                    help="Ollama sampling seed; -1 disables. Ignored by the Claude API.")
     ap.add_argument("--shuffle-seed", type=int, default=42)
     ap.add_argument("--no-shuffle", action="store_true")
     ap.add_argument("--decidability-file", type=Path, default=None)
-    ap.add_argument("--max-retries", type=int, default=2)
+    ap.add_argument("--max-retries", type=int, default=2,
+                    help="Builder re-prompts on unparseable output.")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--skip-silent", action="store_true")
     ap.add_argument("--use-oracle", action="store_true",
@@ -1694,12 +1997,39 @@ def main() -> None:
     if args.oracle_every_turn:
         args.use_oracle = True
 
+    # Backend-dependent defaults.
+    args.director_backend = args.director_backend or args.backend
+    args.model = args.model or DEFAULT_MODEL_BY_BACKEND[args.backend]
+    if args.director_model is None:
+        args.director_model = (args.model if args.director_backend == args.backend
+                               else DEFAULT_MODEL_BY_BACKEND[args.director_backend])
+    if args.max_tokens is None:
+        args.max_tokens = DEFAULT_MAX_TOKENS[args.backend][0]
+    if args.director_max_tokens is None:
+        args.director_max_tokens = DEFAULT_MAX_TOKENS[args.director_backend][1]
+
+    backends: Dict[str, ChatBackend] = {}
+
+    def get_backend(name: str) -> ChatBackend:
+        if name not in backends:
+            if name == "ollama":
+                backends[name] = OllamaBackend(base_url=args.base_url)
+            else:
+                backends[name] = AnthropicBackend(
+                    api_key=args.anthropic_api_key,
+                    max_retries=args.api_max_retries,
+                    send_temperature=not args.no_send_temperature,
+                    effort=args.effort,
+                    min_interval=args.min_request_interval,
+                )
+        return backends[name]
+
     cf_select = args.followon_select
     fa_select = args.factual_followon_select or ("all" if cf_select == "policy" else cf_select)
 
     # Output folder: explicit --out-dir wins; otherwise build the name from the
     # settings so runs never collide. Either way, never overwrite silently.
-    _dir_model = args.director_model or args.model
+    _dir_model = args.director_model
     out_explicit = args.out_dir is not None
     if not out_explicit:
         args.out_dir = auto_out_dir(args, cf_select, fa_select, _dir_model)
@@ -1707,6 +2037,13 @@ def main() -> None:
     writes_output = not (args.policy_check_only or args.preview_director_prompt or args.inspect_row)
     if writes_output:
         print(f"[out] {'Output folder' if out_explicit else 'Auto-named output folder'}: {args.out_dir}")
+        print(f"[backend] Builder: {args.backend}/{args.model} (max_tokens={args.max_tokens})")
+        if args.followon_source == "generate" and args.horizon > 1:
+            print(f"[backend] Directors: {args.director_backend}/{args.director_model} "
+                  f"(max_tokens={args.director_max_tokens})")
+        if "anthropic" in (args.backend, args.director_backend):
+            print("[backend] Claude API has no sampling seed: arms with identical prompts can still "
+                  "differ. Compare builder_prompt_sha1 across arms when reading deltas.")
 
     div_tag, _ = divergence_tag(args.divergence_dir)
     if args.policy_path and args.policy_path.stem != div_tag:
@@ -1746,17 +2083,17 @@ def main() -> None:
     if args.policy_check_only:
         args.horizon = 1   # nothing past the divergence turn is needed for the check
 
-    director_model_name = args.director_model or args.model
+    director_model_name = args.director_model
     LocalDirectorAgent = None
     views_fn = None
-    director_client = None
+    director_backend = None
     if args.followon_source == "generate" and args.horizon > 1:
         director_module = load_director_module(args.director_module)
         LocalDirectorAgent = make_local_director_class(director_module.DirectorAgent)
         views_fn = get_views_fn(director_module)
-        director_client = OpenAI(base_url=args.base_url, api_key="ollama", timeout=300.0)
-        print(f"[directors] Generating follow-on utterances with '{director_model_name}' "
-              f"(DirectorAgent prompt from '{args.director_module}').")
+        director_backend = get_backend(args.director_backend)
+        print(f"[directors] Generating follow-on utterances with {args.director_backend}/"
+              f"'{director_model_name}' (DirectorAgent prompt from '{args.director_module}').")
     after_key = first_present(sample_row, BOARD_AFTER_KEYS)
     before_key = first_present(sample_row, BOARD_BEFORE_KEYS)
     if after_key:
@@ -1770,10 +2107,12 @@ def main() -> None:
     run_cf = args.arms in ("both", "counterfactual")
     run_fa = args.arms in ("both", "factual")
 
+    builder_backend = get_backend(args.backend)
     if not args.skip_preflight and not args.preview_director_prompt and not args.policy_check_only:
-        preflight_ollama(args.base_url, args.model)
-        if LocalDirectorAgent is not None and director_model_name != args.model:
-            preflight_ollama(args.base_url, director_model_name)
+        preflight(builder_backend, args.model, args.base_url)
+        if LocalDirectorAgent is not None and (args.director_backend, director_model_name) != \
+                (args.backend, args.model):
+            preflight(director_backend, director_model_name, args.base_url)
 
     with open(args.structures, "r", encoding="utf-8") as fh:
         struct_data = json.load(fh)
@@ -1810,7 +2149,7 @@ def main() -> None:
             def make_directors(r: Dict) -> Dict:
                 return {
                     d: LocalDirectorAgent(
-                        d, r.get(f"{d}_archetype"), director_client, director_model_name,
+                        d, r.get(f"{d}_archetype"), director_backend, director_model_name,
                         temperature=args.director_temperature,
                         max_tokens=args.director_max_tokens,
                         seed=None if args.seed < 0 else args.seed,
@@ -1856,9 +2195,23 @@ def main() -> None:
     if args.limit:
         turns = turns[: args.limit]
 
+    if writes_output and "anthropic" in (args.backend, args.director_backend):
+        arm_selects = {}
+        if run_cf:
+            arm_selects["counterfactual"] = cf_select
+        if run_fa:
+            arm_selects["factual"] = fa_select
+        b_calls, d_calls = estimate_max_calls(
+            len(turns), len(arm_selects), args.horizon,
+            args.followon_source if LocalDirectorAgent is not None else "history",
+            arm_selects, args.max_retries)
+        print(f"[cost] Upper bound for {len(turns)} turns: ~{b_calls} Builder calls (incl. format "
+              f"retries) and ~{d_calls} director calls. Non-divergence turns, early stops and "
+              f"parseable first answers make the real number lower.")
+
     agent = LocalBuilderAgent(
+        backend=builder_backend,
         model_name=args.model,
-        base_url=args.base_url,
         temperature=args.temperature,
         max_tokens=args.max_tokens,
         seed=None if args.seed < 0 else args.seed,
@@ -2002,9 +2355,10 @@ def main() -> None:
             "oracle_every_turn": args.oracle_every_turn,
             "oracle_check": oracle_check,
             "director_generation_model": director_model_name if LocalDirectorAgent else None,
-            "builder_backend": "ollama",
+            "director_backend": args.director_backend if LocalDirectorAgent else None,
+            "builder_backend": args.backend,
             "builder_model": args.model,
-            "seed": args.seed,
+            "seed": args.seed if builder_backend.supports_seed else None,
             "shuffle_seed": None if args.no_shuffle else args.shuffle_seed,
         }
 
@@ -2052,7 +2406,7 @@ def main() -> None:
                     stats["cf_policy_picked_silent"] += int(s["selection"]["picked_silent"])
 
         if run_fa:
-            # Same local Builder, same seed, same prompts, same follow-on
+            # Same Builder, same seed (Ollama), same prompts, same follow-on
             # dialogue; only the step-0 director differs.
             record["factual"] = run_rollout(
                 agent, "factual", historical, fa_msg, followon=followon_fa, **rollout_kwargs,
@@ -2173,11 +2527,14 @@ def main() -> None:
 
     summary = {
         "out_dir": str(args.out_dir),
-        "run_args": {k: (str(v) if isinstance(v, Path) else v) for k, v in sorted(vars(args).items())},
-        "builder_backend": "ollama",
+        "run_args": {k: (str(v) if isinstance(v, Path) else v) for k, v in sorted(vars(args).items())
+                     if k != "anthropic_api_key"},
+        "builder_backend": args.backend,
         "builder_model": args.model,
-        "base_url": args.base_url,
-        "seed": args.seed,
+        "director_backend": args.director_backend if LocalDirectorAgent else None,
+        "base_url": args.base_url if "ollama" in backends else None,
+        "seed": args.seed if builder_backend.supports_seed else None,
+        "api_usage": {name: b.usage_summary() for name, b in backends.items()},
         "arms": args.arms,
         "horizon": args.horizon,
         "followon_source": args.followon_source,
@@ -2258,7 +2615,7 @@ def main() -> None:
         json.dump(summary, fh, indent=2)
 
     print("\n" + "=" * 76)
-    print(f"  LOCAL BUILDER ROLLOUT SUMMARY  (horizon={args.horizon}, "
+    print(f"  BUILDER ROLLOUT SUMMARY  ({args.backend}/{args.model}, horizon={args.horizon}, "
           f"follow-on={args.followon_source}, cf={cf_select}, fa={fa_select}; counterfactual − factual)")
     print("=" * 76)
     for k, v in summary.items():
@@ -2304,6 +2661,13 @@ def main() -> None:
               f"{stats['oracle_check_agree']}/{stats['oracle_check_n']} divergence turns. Check\n"
               f"    'oracle_check' in the records (target spans / spans format) before trusting\n"
               f"    the follow-on oracle candidates.")
+    for name, b in backends.items():
+        for role, u in b.usage_summary().items():
+            if role == "params_dropped" or not isinstance(u, dict):
+                continue
+            if u.get("max_tokens_stops"):
+                print(f"  ⚠ {u['max_tokens_stops']} {name} {role} responses hit max_tokens; check "
+                      f"parse_failures and raise the token limit if they are high.")
     print(f"  Wrote {len(all_turns_counter)} game files to {args.out_dir}")
 
 
