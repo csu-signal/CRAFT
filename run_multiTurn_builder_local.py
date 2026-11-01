@@ -60,6 +60,19 @@ and its own conversation. Two independent switches control those turns:
       match training; well below means FEATURE_MODE/FEATURE_TIER,
       USE_POOLED_HISTORY or turn numbering differ from how the .pt was trained.
 
+  --followon-select recommend  (needs --policy-path)
+      Policy as RECOMMENDATION rather than filter. The policy scores D1-D3
+      exactly as in 'policy' mode, but the Builder hears ALL speaking
+      directors, and the policy's pick is appended to the Builder prompt
+      (--recommend-template, default "Prioritize D2's instruction. Use the
+      other directors' messages to resolve ambiguity."). With
+      --recommend-step0 recommend (default), the divergence turn works the
+      same way for BOTH arms: each hears all three historical messages plus a
+      recommendation naming its own director (policy's pick vs history's),
+      so the arms' step-0 inputs differ ONLY in the recommendation.
+      --recommend-step0 single keeps the original single-director step 0.
+      The factual arm defaults to 'all' after step 0, as with 'policy'.
+
 In every mode the ONLY difference between the arms is the step-0 director
 choice; everything downstream is the consequence of that choice.
 
@@ -645,6 +658,7 @@ class LocalBuilderAgent(BuilderAgent):
         available_blocks,
         oracle_moves=None,
         check_prompt_tokens: bool = False,
+        builder_note: Optional[str] = None,
     ) -> Dict:
         self.last_raw_text = ""
         self.last_attempts = 0
@@ -660,6 +674,10 @@ class LocalBuilderAgent(BuilderAgent):
                 oracle_moves=oracle_moves,
                 builderPromptAddin=BuilderType.Base,
             )
+            if builder_note:
+                # 'recommend' mode: the policy's pick goes at the END of the
+                # Builder prompt, after the directors' messages and candidates.
+                prompt = f"{prompt}\n\n{builder_note}"
             self.last_prompt = prompt
             if check_prompt_tokens and self.backend.name == "ollama":
                 warn_if_prompt_may_be_truncated(prompt)
@@ -987,6 +1005,7 @@ def execute_step(
     target_norm: Dict,
     oracle_moves,
     check_tokens: bool = False,
+    builder_note: Optional[str] = None,
 ) -> Tuple[Dict, object, object]:
     """
     One Builder move on `board`. Returns (result_dict, board_after, spans_after).
@@ -1002,6 +1021,7 @@ def execute_step(
         available_blocks=AVAILABLE_BLOCKS,
         oracle_moves=oracle_moves,
         check_prompt_tokens=check_tokens,
+        builder_note=builder_note,
     )
     raw_text, attempts = agent.last_raw_text, agent.last_attempts
     print(f"    [{arm:<14} t+{step_idx}] {director or 'history'}: {move}")
@@ -1064,6 +1084,7 @@ def execute_step(
         "builder_prompt": (agent.last_prompt if step_idx == 0 else None),
         "builder_system_prompt": (agent.last_system if step_idx == 0 else None),
         "builder_error": agent.last_error,
+        "builder_note": builder_note,
     }
     return result, board, spans
 
@@ -1280,7 +1301,10 @@ def make_sat_fn(target_raw):
 # Follow-on director turns
 # --------------------------------------------------------------------------- #
 FOLLOWON_SOURCES = ("generate", "history")
-FOLLOWON_SELECTS = ("all", "best", "policy")
+FOLLOWON_SELECTS = ("all", "best", "policy", "recommend")
+POLICY_SELECTS = ("policy", "recommend")
+DEFAULT_RECOMMEND_TEMPLATE = ("RECOMMENDATION: Prioritize {director}'s instruction. "
+                              "Use the other directors' messages to resolve ambiguity.")
 CONVERSATION_KEYS = ("conversation_snapshot", "conversation_history", "conversation")
 
 
@@ -1615,7 +1639,7 @@ def run_rollout(
     stop_reason = None
     conversation = base_conversation(row, followon["conversation_field"])
     directors = followon["make_directors"](row) if (source == "generate" and horizon > 1) else None
-    policy = followon.get("policy") if select == "policy" else None
+    policy = followon.get("policy") if select in POLICY_SELECTS else None
     combo = message_obj.get("modelCombo")
     sat_fn = followon.get("sat_fn")
     hist = None
@@ -1628,13 +1652,23 @@ def run_rollout(
     for k in range(horizon):
         t = turn_index + k
         if k == 0:
-            utterance = f"{director}: {message_obj['utterance']}"
+            note0 = None
+            if followon.get("step0_mode") == "recommend":
+                # Both arms hear all three historical messages; only the
+                # recommended director (this arm's step-0 director) differs.
+                hist_msgs = historical_director_messages(row)
+                utterance = "\n".join(f"{d}: {txt}" for d, txt in hist_msgs.items()
+                                      if not is_silent_text(txt))
+                note0 = followon["recommend_template"].format(director=director)
+            else:
+                utterance = f"{director}: {message_obj['utterance']}"
             board_pre = copy.deepcopy(board)
             step, board, spans = execute_step(
                 agent, arm, 0, director, utterance, board, spans,
-                target_norm, oracle_moves, check_tokens=check_tokens,
+                target_norm, oracle_moves, check_tokens=check_tokens, builder_note=note0,
             )
-            step["selection"] = {"mode": "divergence", "chosen": director}
+            step["selection"] = {"mode": "divergence", "chosen": director,
+                                 "step0_mode": followon.get("step0_mode") or "single"}
             step["oracle_source"] = "craft" if oracle_moves else None
             if policy is not None:
                 row_t = dict(row)
@@ -1688,12 +1722,20 @@ def run_rollout(
                 print(f"    [{arm:<14} t+{k}] policy scores "
                       + " ".join(f"{d}={scores[d]:+.4f}" for d in DIRECTORS)
                       + f" -> {chosen}" + (f" (raw argmax {raw} is silent)" if raw != chosen else ""))
+                note = None
+                if select == "recommend":
+                    # Builder hears every speaking director; the policy's pick
+                    # is a recommendation appended to the prompt.
+                    utterance = "\n".join(f"{d}: {msgs[d]['text']}" for d in speaking)
+                    note = followon["recommend_template"].format(director=chosen)
+                else:
+                    utterance = f"{chosen}: {msgs[chosen]['text']}"
                 step, board, spans = execute_step(
-                    agent, arm, k, chosen, f"{chosen}: {msgs[chosen]['text']}",
-                    board, spans, target_norm, step_oracle,
+                    agent, arm, k, chosen, utterance,
+                    board, spans, target_norm, step_oracle, builder_note=note,
                 )
                 step["selection"] = {
-                    "mode": "policy", "chosen": chosen, "raw_argmax": raw,
+                    "mode": select, "chosen": chosen, "raw_argmax": raw,
                     "picked_silent": raw != chosen, "scores": scores, "speaking": speaking,
                 }
                 for d in DIRECTORS:
@@ -1841,7 +1883,9 @@ def auto_out_dir(args, cf_select: str, fa_select: str, director_model_name: str)
     ]
     if args.horizon > 1:
         parts.append(f"{args.followon_source}-{cf_select}")
-        default_fa = "all" if cf_select == "policy" else cf_select
+        if cf_select == "recommend" and getattr(args, "recommend_step0", "recommend") == "single":
+            parts.append("s0single")
+        default_fa = "all" if cf_select in POLICY_SELECTS else cf_select
         if fa_select != default_fa:
             parts.append(f"fa-{fa_select}")
         if args.followon_source == "generate" and director_model_name != args.model:
@@ -1928,7 +1972,9 @@ def main() -> None:
                     help="What the Builder hears at follow-on turns. 'all' (default): every "
                          "non-silent director. 'best': each director alone, keeping the move with "
                          "the highest IoU vs target (oracle selection). history+best ablates "
-                         "compounding returns from director selection alone.")
+                         "compounding returns from director selection alone. 'policy': the "
+                         "policy's pick only. 'recommend': all directors plus the policy's pick "
+                         "as a recommendation in the Builder prompt.")
     ap.add_argument("--director-module", default="director_agent_local",
                     help="Module (file name without .py) that defines DirectorAgent.")
     ap.add_argument("--director-model", default=None,
@@ -1960,6 +2006,13 @@ def main() -> None:
     ap.add_argument("--factual-followon-select", choices=FOLLOWON_SELECTS, default=None,
                     help="Follow-on selection for the FACTUAL arm. Default: same as "
                          "--followon-select, except 'all' when that is 'policy'.")
+    ap.add_argument("--recommend-step0", choices=["recommend", "single"], default="recommend",
+                    help="(recommend mode) Divergence turn: 'recommend' (default) gives BOTH arms all "
+                         "three historical messages plus a recommendation naming that arm's director; "
+                         "'single' keeps the original step 0 (each arm hears only its director).")
+    ap.add_argument("--recommend-template", default=DEFAULT_RECOMMEND_TEMPLATE,
+                    help="(recommend mode) Recommendation appended to the Builder prompt; must "
+                         "contain {director}.")
     ap.add_argument("--policy-check-only", action="store_true",
                     help="Rebuild the policy's input at every divergence turn, check its argmax "
                          "matches the logged 'predicted' director, report the rate and exit. "
@@ -2025,7 +2078,11 @@ def main() -> None:
         return backends[name]
 
     cf_select = args.followon_select
-    fa_select = args.factual_followon_select or ("all" if cf_select == "policy" else cf_select)
+    fa_select = args.factual_followon_select or ("all" if cf_select in POLICY_SELECTS else cf_select)
+    if "{director}" not in args.recommend_template:
+        sys.exit("--recommend-template must contain {director}.")
+    step0_mode = ("recommend" if cf_select == "recommend" and args.recommend_step0 == "recommend"
+                  else "single")
 
     # Output folder: explicit --out-dir wins; otherwise build the name from the
     # settings so runs never collide. Either way, never overwrite silently.
@@ -2051,7 +2108,7 @@ def main() -> None:
               f"this divergence data ('{div_tag}'). Step 0 uses the logged picks of '{div_tag}', "
               f"follow-on turns would use a different policy, and the reproduction check will "
               f"likely fail. Intended only if you are deliberately mixing policies.")
-    needs_policy = args.policy_check_only or "policy" in (cf_select, fa_select)
+    needs_policy = args.policy_check_only or any(s in POLICY_SELECTS for s in (cf_select, fa_select))
     if needs_policy and args.policy_path is None:
         sys.exit("--policy-path is required for --followon-select policy / --policy-check-only.")
 
@@ -2161,6 +2218,8 @@ def main() -> None:
             "source": args.followon_source,
             "select": select,
             "policy": policy,
+            "step0_mode": step0_mode,
+            "recommend_template": args.recommend_template,
             "oracle": oracle_regen,
             "target_raw": struct_entry["structure"],
             "target_spans": target_spans_for(struct_entry),
@@ -2351,6 +2410,8 @@ def main() -> None:
             "followon_source": args.followon_source,
             "followon_select": cf_select,
             "factual_followon_select": fa_select,
+            "step0_mode": step0_mode,
+            "recommend_template": args.recommend_template if "recommend" in (cf_select, fa_select) else None,
             "policy_check": policy_check,
             "oracle_every_turn": args.oracle_every_turn,
             "oracle_check": oracle_check,
@@ -2401,7 +2462,7 @@ def main() -> None:
             for s in record["counterfactual"]["steps"]:
                 stats[f"cf_action_{s['builder_move']['action']}"] += 1
                 stats["cf_parse_failure"] += int(s["parse_failed"])
-                if s.get("selection", {}).get("mode") == "policy":
+                if s.get("selection", {}).get("mode") in POLICY_SELECTS:
                     stats["cf_policy_steps"] += 1
                     stats["cf_policy_picked_silent"] += int(s["selection"]["picked_silent"])
 
@@ -2414,7 +2475,7 @@ def main() -> None:
             for s in record["factual"]["steps"]:
                 stats[f"fa_action_{s['builder_move']['action']}"] += 1
                 stats["fa_parse_failure"] += int(s["parse_failed"])
-                if s.get("selection", {}).get("mode") == "policy":
+                if s.get("selection", {}).get("mode") in POLICY_SELECTS:
                     stats["fa_policy_steps"] += 1
                     stats["fa_policy_picked_silent"] += int(s["selection"]["picked_silent"])
 
@@ -2540,6 +2601,8 @@ def main() -> None:
         "followon_source": args.followon_source,
         "followon_select": cf_select,
         "factual_followon_select": fa_select,
+        "step0_mode": step0_mode,
+        "recommend_template": args.recommend_template if "recommend" in (cf_select, fa_select) else None,
         "policy_path": str(args.policy_path) if args.policy_path else None,
         "policy_feature_mode": policy.cfg.FEATURE_MODE if policy else None,
         "policy_feature_tier": policy.cfg.FEATURE_TIER if policy else None,
