@@ -177,6 +177,13 @@ Usage
     python run_multiTurn_builder_local.py ... --backend anthropic --model claude-sonnet-5-5
     # -> .../multiTurn/claude_claude-sonnet-5-5__policy_seed77_...
 
+    # See exactly what the Builder receives (first 2 turns printed, all steps saved):
+    python run_multiTurn_builder_local.py ... --limit 3 --print-prompts 2 --save-prompts all
+
+    # Interrupted? Rerun the SAME command with --resume: finished turns are skipped
+    # (results are saved after every turn) and the summary covers all of them.
+    python run_multiTurn_builder_local.py ... --resume
+
     # Claude Builder, local Ollama directors:
     python run_multiTurn_builder_local.py ... --backend anthropic \
         --director-backend ollama --director-model qwen2.5:7b-instruct
@@ -990,10 +997,20 @@ def span_recorded(spans, pos, partner, layer) -> bool:
 
 _SPAN_WARNED = False
 
+# Builder prompt logging, set from --save-prompts / --print-prompts in main().
+#   save:  "step0" (default) | "all" | "none" -- which steps keep the full prompt
+#   print: True while the current divergence turn is within --print-prompts
+PROMPT_LOG = {"save": "step0", "print": False}
+
 
 # --------------------------------------------------------------------------- #
 # Step / rollout execution
 # --------------------------------------------------------------------------- #
+def _keep_prompt(step_idx: int) -> bool:
+    mode = PROMPT_LOG["save"]
+    return mode == "all" or (mode == "step0" and step_idx == 0)
+
+
 def execute_step(
     agent: LocalBuilderAgent,
     arm: str,
@@ -1024,6 +1041,12 @@ def execute_step(
         builder_note=builder_note,
     )
     raw_text, attempts = agent.last_raw_text, agent.last_attempts
+    if PROMPT_LOG["print"] and agent.last_prompt:
+        bar = "-" * 72
+        print(f"\n    {bar}\n    BUILDER PROMPT  [{arm} t+{step_idx}]\n    {bar}")
+        print(f"    SYSTEM: {agent.last_system}\n")
+        print("\n".join("    " + line for line in agent.last_prompt.splitlines()))
+        print(f"    {bar}\n")
     print(f"    [{arm:<14} t+{step_idx}] {director or 'history'}: {move}")
 
     # NOTE: spans is carried forward as the same object. This assumes
@@ -1081,8 +1104,8 @@ def execute_step(
         # differ; the full prompt is kept for the divergence step (step 0).
         "builder_prompt_sha1": hashlib.sha1(
             (agent.last_system + "\n" + agent.last_prompt).encode("utf-8")).hexdigest() if agent.last_prompt else None,
-        "builder_prompt": (agent.last_prompt if step_idx == 0 else None),
-        "builder_system_prompt": (agent.last_system if step_idx == 0 else None),
+        "builder_prompt": (agent.last_prompt if _keep_prompt(step_idx) else None),
+        "builder_system_prompt": (agent.last_system if _keep_prompt(step_idx) else None),
         "builder_error": agent.last_error,
         "builder_note": builder_note,
     }
@@ -1841,6 +1864,77 @@ def estimate_max_calls(n_turns: int, n_arms: int, horizon: int, source: str,
 
 
 # --------------------------------------------------------------------------- #
+# Incremental saving and --resume
+# --------------------------------------------------------------------------- #
+RUN_CONFIG_NAME = "_run_config.json"
+# Settings that do not change results, so they may differ when resuming.
+RESUME_VOLATILE_ARGS = {
+    "limit", "resume", "overwrite", "print_prompts", "save_prompts", "out_dir", "out_root",
+    "anthropic_api_key", "skip_preflight", "api_max_retries", "min_request_interval",
+}
+
+
+def _json_default(obj):
+    return obj.to_dict() if hasattr(obj, "to_dict") else str(obj)
+
+
+def write_json_atomic(path: Path, obj) -> None:
+    """Write to a temp file, then swap it in: an interrupted write can never
+    leave a truncated results file behind."""
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, indent=2, default=_json_default)
+    os.replace(tmp, path)
+
+
+def serializable_args(args) -> Dict:
+    raw = {k: (str(v) if isinstance(v, Path) else v)
+           for k, v in sorted(vars(args).items()) if k != "anthropic_api_key"}
+    return json.loads(json.dumps(raw, default=str))
+
+
+def record_identity(r: Dict) -> tuple:
+    """One divergence turn: same game, turn, and the two directors being compared."""
+    return (r.get("turn"), str(r.get("structure_id")), r.get("modelCombo"),
+            r.get("counterfactualDirector"), r.get("historicalDirector"))
+
+
+def game_files(out_dir: Path) -> List[Path]:
+    return [p for p in sorted(out_dir.glob("*.json")) if not p.name.startswith("_")]
+
+
+def load_saved_records(out_dir: Path) -> Dict[str, List[Dict]]:
+    saved: Dict[str, List[Dict]] = {}
+    for p in game_files(out_dir):
+        try:
+            with open(p, encoding="utf-8") as fh:
+                rows = json.load(fh)
+        except (json.JSONDecodeError, OSError) as exc:
+            sys.exit(f"[resume] Could not read {p} ({exc}). Move it aside and resume again.")
+        saved[p.name[:-len(".json")]] = rows if isinstance(rows, list) else [rows]
+    return saved
+
+
+def saved_run_args(out_dir: Path) -> Optional[Dict]:
+    cfg = out_dir / RUN_CONFIG_NAME
+    candidates = [cfg] if cfg.exists() else sorted(out_dir.glob("_run_summary*.json"))
+    for p in candidates:
+        try:
+            with open(p, encoding="utf-8") as fh:
+                return json.load(fh).get("run_args")
+        except (json.JSONDecodeError, OSError):
+            continue
+    return None
+
+
+def resume_conflicts(prev: Dict, cur: Dict) -> Dict:
+    """Result-affecting settings that differ. Keys only one side knows (older
+    script versions) are ignored."""
+    keys = (set(prev) & set(cur)) - RESUME_VOLATILE_ARGS
+    return {k: (prev[k], cur[k]) for k in sorted(keys) if prev[k] != cur[k]}
+
+
+# --------------------------------------------------------------------------- #
 # Automatic output folder naming
 # --------------------------------------------------------------------------- #
 def _slug(value) -> str:
@@ -2042,8 +2136,21 @@ def main() -> None:
                     help="Oracle candidates at EVERY turn: step 0 uses CRAFT's logged oracle_moves "
                          "(history); each follow-on turn regenerates them for that arm's own board "
                          "with oracle.py. Implies --use-oracle.")
+    ap.add_argument("--save-prompts", choices=["step0", "all", "none"], default="step0",
+                    help="Which steps keep the full Builder prompt (builder_prompt / "
+                         "builder_system_prompt) in the output files. Default: step0. "
+                         "'all' saves every step (larger files). Every step always keeps "
+                         "builder_prompt_sha1 and builder_note.")
+    ap.add_argument("--print-prompts", type=int, default=0, metavar="N",
+                    help="Print the full Builder prompt to the console for every step of the "
+                         "first N divergence turns run (both arms). Default 0 (off).")
+    ap.add_argument("--resume", action="store_true",
+                    help="Continue an interrupted run: reuse its output folder (instead of a new "
+                         "__runN), skip turns already saved there, and build the summary from saved "
+                         "plus new results. Refuses if result-affecting settings differ.")
     ap.add_argument("--skip-preflight", action="store_true")
     args = ap.parse_args()
+    PROMPT_LOG["save"] = args.save_prompts
 
     if args.horizon < 1:
         sys.exit("--horizon must be >= 1")
@@ -2090,7 +2197,8 @@ def main() -> None:
     out_explicit = args.out_dir is not None
     if not out_explicit:
         args.out_dir = auto_out_dir(args, cf_select, fa_select, _dir_model)
-    args.out_dir = unique_out_dir(args.out_dir, args.overwrite)
+    if not args.resume:
+        args.out_dir = unique_out_dir(args.out_dir, args.overwrite)
     writes_output = not (args.policy_check_only or args.preview_director_prompt or args.inspect_row)
     if writes_output:
         print(f"[out] {'Output folder' if out_explicit else 'Auto-named output folder'}: {args.out_dir}")
@@ -2277,10 +2385,36 @@ def main() -> None:
         max_retries=args.max_retries,
     )
 
+    saved_by_game: Dict[str, List[Dict]] = {}
+    done: Dict[tuple, Dict] = {}
+    if writes_output and args.resume:
+        if args.out_dir.exists() and game_files(args.out_dir):
+            prev = saved_run_args(args.out_dir)
+            if prev is None:
+                print("[resume] WARNING: no saved settings found in this folder; cannot confirm the "
+                      "saved results used the same settings.")
+            else:
+                conflicts = resume_conflicts(prev, serializable_args(args))
+                if conflicts:
+                    sys.exit("[resume] Not resuming: these settings differ from the saved run:\n" +
+                             "\n".join(f"    {k}: saved={a!r}  now={b!r}" for k, (a, b) in conflicts.items()) +
+                             "\n  Use the original settings, or start a new run without --resume.")
+            saved_by_game = load_saved_records(args.out_dir)
+            for rows in saved_by_game.values():
+                for r in rows:
+                    done[record_identity(r)] = r
+            print(f"[resume] {len(done)} completed turns found in {len(saved_by_game)} game files "
+                  f"in {args.out_dir}; they will be skipped.")
+        else:
+            print(f"[resume] Nothing saved yet in {args.out_dir}; starting from the beginning.")
+
     if writes_output:
         args.out_dir.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(args.out_dir / RUN_CONFIG_NAME, {"run_args": serializable_args(args)})
 
-    all_turns_counter: Dict[str, List[Dict]] = defaultdict(list)
+    # Pre-loaded with saved results, so rewriting a game's file never drops them.
+    all_turns_counter: Dict[str, List[Dict]] = defaultdict(
+        list, {k: list(v) for k, v in saved_by_game.items()})
     stats: Dict[str, int] = defaultdict(int)
     # step -> endpoint -> values
     deltas_by_step: Dict[int, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
@@ -2293,6 +2427,98 @@ def main() -> None:
     horizon_reached_counts: Dict[int, int] = defaultdict(int)
     oracle_adherence: Dict[int, Dict[str, List[bool]]] = defaultdict(lambda: defaultdict(list))
     t_start = time.time()
+
+    def aggregate(record: Dict, verbose: bool = True) -> None:
+        """Fold one finished divergence turn into the run statistics. Used for
+        new turns and for turns loaded from disk by --resume, so the summary is
+        identical either way."""
+        predicted = record["counterfactualDirector"]
+        cf_silent = record["silent_director"]
+        director_label = record["director_model_label"]
+        for arm_name, prefix in (("counterfactual", "cf"), ("factual", "fa")):
+            for s in record.get(arm_name, {}).get("steps", []):
+                stats[f"{prefix}_action_{s['builder_move']['action']}"] += 1
+                stats[f"{prefix}_parse_failure"] += int(s["parse_failed"])
+                if s.get("selection", {}).get("mode") in POLICY_SELECTS:
+                    stats[f"{prefix}_policy_steps"] += 1
+                    stats[f"{prefix}_policy_picked_silent"] += int(s["selection"]["picked_silent"])
+
+        for arm_name in ("counterfactual", "factual"):
+            for s_ in record.get(arm_name, {}).get("steps", []):
+                if s_.get("oracle_adherent") is not None:
+                    oracle_adherence[s_["step"]][arm_name].append(bool(s_["oracle_adherent"]))
+                if s_.get("span_recorded") is False:
+                    stats["span_not_recorded"] += 1
+
+        if "counterfactual" in record and "factual" in record:
+            cf_steps = record["counterfactual"]["steps"]
+            fa_steps = record["factual"]["steps"]
+            n_common = min(len(cf_steps), len(fa_steps))
+            horizon_reached_counts[n_common] += 1
+
+            per_step = []
+            for k in range(n_common):
+                c, f = cf_steps[k], fa_steps[k]
+                d_full = c["satisfaction_full"] - f["satisfaction_full"]
+                d_policy = c["partial_views"][predicted] - f["partial_views"][predicted]
+                entry = {
+                    "step": k,
+                    "turn": c["turn"],
+                    "full": d_full,
+                    "partial_policy_view": d_policy,
+                    "iou_vs_ground_truth_board": None,
+                }
+                deltas_by_step[k]["full_board"].append(d_full)
+                deltas_by_step[k]["partial_policy_view"].append(d_policy)
+                if not cf_silent:
+                    deltas_by_step[k]["full_board_excluding_silent"].append(d_full)
+                if c["iou_vs_ground_truth_board"] is not None and f["iou_vs_ground_truth_board"] is not None:
+                    d_gt = c["iou_vs_ground_truth_board"] - f["iou_vs_ground_truth_board"]
+                    entry["iou_vs_ground_truth_board"] = d_gt
+                    deltas_by_step[k]["iou_vs_ground_truth_board"].append(d_gt)
+                for arm_name, s in (("counterfactual", c), ("factual", f)):
+                    if s["progress_vs_ground_truth"] is not None:
+                        gt_by_step[k][f"{arm_name}_progress_vs_ground_truth"].append(s["progress_vs_ground_truth"])
+                        gt_by_step[k][f"{arm_name}_iou_vs_ground_truth_board"].append(s["iou_vs_ground_truth_board"])
+                per_step.append(entry)
+                if verbose:
+                    print(f"    t+{k}: delta_full={d_full:+.4f}  delta_policy_view={d_policy:+.4f}  "
+                          f"delta_iou_vs_gt={_fmt(entry['iou_vs_ground_truth_board'])}")
+
+            cf_action = cf_steps[0]["builder_move"]["action"]
+            fa_action = fa_steps[0]["builder_move"]["action"]
+            move_type_key = f"{cf_action}/{fa_action}"
+            reached_full = n_common == args.horizon
+
+            record["move_type"] = move_type_key
+            record["delta"] = {
+                "steps_compared": n_common,
+                "full_horizon": reached_full,
+                "progress_before": cf_steps[0]["satisfaction_full_before"],
+                "per_step": per_step,
+            }
+
+            step0, final = per_step[0], per_step[-1]
+            for bucket in (deltas_by_director[director_label], deltas_by_move_type[move_type_key]):
+                bucket["step0_full_board"].append(step0["full"])
+                bucket["step0_partial_policy_view"].append(step0["partial_policy_view"])
+                if reached_full:
+                    bucket["final_full_board"].append(final["full"])
+                    bucket["final_partial_policy_view"].append(final["partial_policy_view"])
+                    if final["iou_vs_ground_truth_board"] is not None:
+                        bucket["final_iou_vs_ground_truth_board"].append(final["iou_vs_ground_truth_board"])
+
+            if reached_full:
+                full_horizon["step0_full_board"].append(step0["full"])
+                full_horizon["final_full_board"].append(final["full"])
+                full_horizon["step0_partial_policy_view"].append(step0["partial_policy_view"])
+                full_horizon["final_partial_policy_view"].append(final["partial_policy_view"])
+                if final["iou_vs_ground_truth_board"] is not None:
+                    full_horizon["final_iou_vs_ground_truth_board"].append(final["iou_vs_ground_truth_board"])
+                for arm_name, steps in (("counterfactual", cf_steps), ("factual", fa_steps)):
+                    p = steps[-1]["progress_vs_ground_truth"]
+                    if p is not None:
+                        full_horizon[f"final_{arm_name}_progress_vs_ground_truth"].append(p)
 
     for count, turn in enumerate(turns, start=1):
         predicted = turn["predicted"]
@@ -2398,6 +2624,14 @@ def main() -> None:
             if args.policy_check_only:
                 continue
 
+        ident = (turn_index, str(row["structure_id"]), cf_msg["modelCombo"], predicted, historical)
+        if ident in done:
+            aggregate(done.pop(ident), verbose=False)
+            stats["resumed"] += 1
+            stats["scored"] += 1
+            print("  [resume] already saved; using the saved result")
+            continue
+
         record: Dict = {
             "turn": turn_index,
             "structure_id": row["structure_id"],
@@ -2447,6 +2681,8 @@ def main() -> None:
                                   tail(convo, args.max_history_chars or None)))
             return
 
+        PROMPT_LOG["print"] = stats["scored"] < args.print_prompts
+
         rollout_kwargs = dict(
             row=row, target_norm=target_norm, oracle_moves=oracle_moves,
             craft_index=craft_index, turn_index=turn_index, structure_id=structure_id,
@@ -2459,12 +2695,6 @@ def main() -> None:
                 agent, "counterfactual", predicted, cf_msg,
                 followon=followon_cf, check_tokens=(count == 1), **rollout_kwargs,
             )
-            for s in record["counterfactual"]["steps"]:
-                stats[f"cf_action_{s['builder_move']['action']}"] += 1
-                stats["cf_parse_failure"] += int(s["parse_failed"])
-                if s.get("selection", {}).get("mode") in POLICY_SELECTS:
-                    stats["cf_policy_steps"] += 1
-                    stats["cf_policy_picked_silent"] += int(s["selection"]["picked_silent"])
 
         if run_fa:
             # Same Builder, same seed (Ollama), same prompts, same follow-on
@@ -2472,91 +2702,13 @@ def main() -> None:
             record["factual"] = run_rollout(
                 agent, "factual", historical, fa_msg, followon=followon_fa, **rollout_kwargs,
             )
-            for s in record["factual"]["steps"]:
-                stats[f"fa_action_{s['builder_move']['action']}"] += 1
-                stats["fa_parse_failure"] += int(s["parse_failed"])
-                if s.get("selection", {}).get("mode") in POLICY_SELECTS:
-                    stats["fa_policy_steps"] += 1
-                    stats["fa_policy_picked_silent"] += int(s["selection"]["picked_silent"])
 
-        for arm_name in ("counterfactual", "factual"):
-            for s_ in record.get(arm_name, {}).get("steps", []):
-                if s_.get("oracle_adherent") is not None:
-                    oracle_adherence[s_["step"]][arm_name].append(bool(s_["oracle_adherent"]))
-                if s_.get("span_recorded") is False:
-                    stats["span_not_recorded"] += 1
+        aggregate(record)
 
-        if run_cf and run_fa:
-            cf_steps = record["counterfactual"]["steps"]
-            fa_steps = record["factual"]["steps"]
-            n_common = min(len(cf_steps), len(fa_steps))
-            horizon_reached_counts[n_common] += 1
-
-            per_step = []
-            for k in range(n_common):
-                c, f = cf_steps[k], fa_steps[k]
-                d_full = c["satisfaction_full"] - f["satisfaction_full"]
-                d_policy = c["partial_views"][predicted] - f["partial_views"][predicted]
-                entry = {
-                    "step": k,
-                    "turn": c["turn"],
-                    "full": d_full,
-                    "partial_policy_view": d_policy,
-                    "iou_vs_ground_truth_board": None,
-                }
-                deltas_by_step[k]["full_board"].append(d_full)
-                deltas_by_step[k]["partial_policy_view"].append(d_policy)
-                if not cf_silent:
-                    deltas_by_step[k]["full_board_excluding_silent"].append(d_full)
-                if c["iou_vs_ground_truth_board"] is not None and f["iou_vs_ground_truth_board"] is not None:
-                    d_gt = c["iou_vs_ground_truth_board"] - f["iou_vs_ground_truth_board"]
-                    entry["iou_vs_ground_truth_board"] = d_gt
-                    deltas_by_step[k]["iou_vs_ground_truth_board"].append(d_gt)
-                for arm_name, s in (("counterfactual", c), ("factual", f)):
-                    if s["progress_vs_ground_truth"] is not None:
-                        gt_by_step[k][f"{arm_name}_progress_vs_ground_truth"].append(s["progress_vs_ground_truth"])
-                        gt_by_step[k][f"{arm_name}_iou_vs_ground_truth_board"].append(s["iou_vs_ground_truth_board"])
-                per_step.append(entry)
-                print(f"    t+{k}: delta_full={d_full:+.4f}  delta_policy_view={d_policy:+.4f}  "
-                      f"delta_iou_vs_gt={_fmt(entry['iou_vs_ground_truth_board'])}")
-
-            cf_action = cf_steps[0]["builder_move"]["action"]
-            fa_action = fa_steps[0]["builder_move"]["action"]
-            move_type_key = f"{cf_action}/{fa_action}"
-            reached_full = n_common == args.horizon
-
-            record["move_type"] = move_type_key
-            record["delta"] = {
-                "steps_compared": n_common,
-                "full_horizon": reached_full,
-                "progress_before": cf_steps[0]["satisfaction_full_before"],
-                "per_step": per_step,
-            }
-
-            step0, final = per_step[0], per_step[-1]
-            for bucket in (deltas_by_director[director_label], deltas_by_move_type[move_type_key]):
-                bucket["step0_full_board"].append(step0["full"])
-                bucket["step0_partial_policy_view"].append(step0["partial_policy_view"])
-                if reached_full:
-                    bucket["final_full_board"].append(final["full"])
-                    bucket["final_partial_policy_view"].append(final["partial_policy_view"])
-                    if final["iou_vs_ground_truth_board"] is not None:
-                        bucket["final_iou_vs_ground_truth_board"].append(final["iou_vs_ground_truth_board"])
-
-            if reached_full:
-                full_horizon["step0_full_board"].append(step0["full"])
-                full_horizon["final_full_board"].append(final["full"])
-                full_horizon["step0_partial_policy_view"].append(step0["partial_policy_view"])
-                full_horizon["final_partial_policy_view"].append(final["partial_policy_view"])
-                if final["iou_vs_ground_truth_board"] is not None:
-                    full_horizon["final_iou_vs_ground_truth_board"].append(final["iou_vs_ground_truth_board"])
-                for arm_name, steps in (("counterfactual", cf_steps), ("factual", fa_steps)):
-                    p = steps[-1]["progress_vs_ground_truth"]
-                    if p is not None:
-                        full_horizon[f"final_{arm_name}_progress_vs_ground_truth"].append(p)
-
+        # Save this game's file now, so an interruption keeps every finished turn.
         key = f"{cf_msg['modelCombo']}_{row['structure_id']}"
         all_turns_counter[key].append(record)
+        write_json_atomic(args.out_dir / f"{key}.json", all_turns_counter[key])
         stats["scored"] += 1
 
     if args.policy_check_only:
@@ -2574,15 +2726,11 @@ def main() -> None:
         return
 
     # ── Write ──────────────────────────────────────────────────────────────
+    # Files are already written after every turn; this final pass is a safety net.
     for key, rows in all_turns_counter.items():
-        out_path = args.out_dir / f"{key}.json"
-        with open(out_path, "w", encoding="utf-8") as fh:
-            json.dump(
-                rows, fh, indent=2,
-                default=lambda obj: obj.to_dict() if hasattr(obj, "to_dict") else str(obj),
-            )
+        write_json_atomic(args.out_dir / f"{key}.json", rows)
 
-    processed = sum(len(v) for v in all_turns_counter.values())
+    processed = stats["scored"]
     elapsed = time.time() - t_start
     silent_rate = stats["silent_director"] / max(len(turns), 1)
 
@@ -2603,6 +2751,7 @@ def main() -> None:
         "factual_followon_select": fa_select,
         "step0_mode": step0_mode,
         "recommend_template": args.recommend_template if "recommend" in (cf_select, fa_select) else None,
+        "save_prompts": args.save_prompts,
         "policy_path": str(args.policy_path) if args.policy_path else None,
         "policy_feature_mode": policy.cfg.FEATURE_MODE if policy else None,
         "policy_feature_tier": policy.cfg.FEATURE_TIER if policy else None,
@@ -2637,6 +2786,8 @@ def main() -> None:
         "divergence_dir": str(args.divergence_dir),
         "turns_seen": len(turns),
         "turns_scored": processed,
+        "turns_resumed_from_disk": stats["resumed"],
+        "saved_turns_not_in_this_run": len(done),
         "games_written": len(all_turns_counter),
         "steps_compared_histogram": dict(sorted(horizon_reached_counts.items())),
         "silent_director_count": stats["silent_director"],
