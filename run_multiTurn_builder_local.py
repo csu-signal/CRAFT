@@ -2825,7 +2825,7 @@ def main() -> None:
             for label, endpoints in sorted(deltas_by_move_type.items())
         }
 
-    with open(args.out_dir / f"_run_summary-{args.out_dir.name}.json", "w", encoding="utf-8") as fh:
+    with open(args.out_dir / f"_run_summary.json", "w", encoding="utf-8") as fh:
         json.dump(summary, fh, indent=2)
 
     print("\n" + "=" * 76)
