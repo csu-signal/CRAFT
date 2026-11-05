@@ -61,7 +61,7 @@ def add_protocol_args(parser):
     g.add_argument("--resume", action="store_true", help="continue a crashed run (same --run_name)")
     g.add_argument("--out_dir", type=str, default="eval_results")
     g.add_argument("--out_csv", type=str, default=None, help="default: <out_dir>.csv")
-    g.add_argument("--report_to", type=str, default="wandb", choices=["none", "wandb"])
+    g.add_argument("--report_to", type=str, default="none", choices=["none", "wandb"])
     g.add_argument("--log_every_episodes", type=int, default=5)
 
 
