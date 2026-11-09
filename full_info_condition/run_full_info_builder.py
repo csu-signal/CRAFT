@@ -644,9 +644,9 @@ def build_turn_record(t, move, res, cands, shown, board_before, board, metrics, 
 
 def play_game(entry: Dict, structure_index: int, policy, cfg: argparse.Namespace, run: int, previousData, checkpoint=None) -> Dict:
     partType = "empty"
-    filepath = f'{previousData}/dpip_structure_{structure_index + 1:03d}_{run}.json'
+    filepath = f'{previousData}/dpip_structure_{structure_index + 1:03d}_1.json'
     if not os.path.exists(filepath):
-        filepath = f'{previousData}/craft_structure_{structure_index + 1:03d}_{run}.json'
+        filepath = f'{previousData}/craft_structure_{structure_index + 1:03d}_1.json'
     with open(filepath, 'r', encoding='utf-8') as file:
         data = json.load(file)
         partType = data['games'][0]['partialCompletionCategory']
@@ -711,6 +711,7 @@ def play_game(entry: Dict, structure_index: int, policy, cfg: argparse.Namespace
         "complexity": entry.get("complexity"),
         "run": run,
         "policy": policy.name,
+        "partialCompletionCategory": partType,
         "config": config_dict(cfg),
         "target": target.to_json(),
         "target_views": views,

@@ -70,7 +70,7 @@ BLOCKS = [c + s for c in "gbryo" for s in "sl"]   # gs gl bs bl ...
 # stack; wall modes copy whole stacks on one Director's wall.
 PARTIAL_LAYER_MODES: Dict[str, int] = {"firstLayer": 1, "firstTwoLayers": 2}
 PARTIAL_WALL_MODES: Dict[str, str] = {"D1Wall": "D1", "D2Wall": "D2", "D3Wall": "D3"}
-PARTIAL_MODES: List[str] = ["none", *PARTIAL_LAYER_MODES, *PARTIAL_WALL_MODES]
+PARTIAL_MODES: List[str] = ["empty", *PARTIAL_LAYER_MODES, *PARTIAL_WALL_MODES]
 
 _POS_RE = re.compile(r"^\(?\s*(\d)\s*,\s*(\d)\s*\)?$")
 
@@ -132,29 +132,34 @@ class Board:
 
     @classmethod
     def from_partial(cls, target: "Board",
-                     part_type: Union[None, str, Iterable[str]] = "none") -> "Board":
-        """
-        A part-complete starting board: a physically valid, prefix-correct
-        subset of `target`.
-
-        part_type: "none" | "firstLayer" | "firstTwoLayers" | "D1Wall" |
-                   "D2Wall" | "D3Wall", or a list of these (union, e.g.
-                   ["D1Wall", "D3Wall"]).
-
-        A domino is copied only if BOTH halves fall inside the selection.
-        If a wall cell's domino spans off the wall (e.g. (1,0)-(1,1)), that
-        stack is cut just below the domino, since half a domino can't exist
-        and nothing can rest on a missing block. Layer modes never split a
-        domino, because both halves of a domino share the same layer.
-        """
-        keep = _close_slots(target, partial_slots(target, part_type))
-        stacks = {c: [blk for k, blk in enumerate(target.stacks[c]) if (c, k) in keep]
-                  for c in CELLS}                  # fresh lists: no aliasing with target
+                     part_type: str = "empty") -> "Board":
+        stacks: Dict[str, List[str]] = {c: [] for c in CELLS}            
         spans: Dict[int, List[Tuple[str, str]]] = {}
-        for layer, pairs in target.spans.items():
-            kept = [(a, b) for a, b in pairs if (a, layer) in keep and (b, layer) in keep]
-            if kept:
-                spans[layer] = kept
+        match part_type:
+            case "firstLayer":
+                for c in target.stacks:
+                    # start part complete, copy the bottom layer from the target into the current
+                    if(len(target.stacks[c]) > 0):
+                        stacks[c].append(target.stacks[c][0])
+            case "firstTwoLayers":
+                for c in target.stacks:
+                    # start part complete, copy the bottom 2 layers from the target into the current
+                    if(len(target.stacks[c]) > 0):
+                        stacks[c].append(target.stacks[c][0])
+                    if(len(target.stacks[c]) > 1):
+                        stacks[c].append(target.stacks[c][1])
+            case "D1Wall":
+                    stacks["(0,0)"] = target.stacks["(0,0)"]
+                    stacks["(1,0)"] = target.stacks["(1,0)"]
+                    stacks["(2,0)"] = target.stacks["(2,0)"]
+            case "D2Wall":
+                    stacks["(0,0)"] = target.stacks["(0,0)"]
+                    stacks["(0,1)"] = target.stacks["(0,1)"]
+                    stacks["(0,2)"] = target.stacks["(0,2)"]
+            case "D3Wall":
+                    stacks["(0,2)"] = target.stacks["(0,2)"]
+                    stacks["(1,2)"] = target.stacks["(1,2)"]
+                    stacks["(2,2)"] = target.stacks["(2,2)"]
         return cls(stacks=stacks, spans=spans)
 
     def copy(self) -> "Board":
@@ -264,71 +269,9 @@ class Board:
         return MoveResult(True)
 
 
-# --------------------------------------------------------------------------- #
-# Part-complete starting states
-# --------------------------------------------------------------------------- #
-def partial_slots(target: Board, part_type: Union[None, str, Iterable[str]]) -> Set[Tuple[str, int]]:
-    """Raw (cell, layer) slots selected by part_type, before validity closure."""
-    if part_type is None:
-        return set()
-    modes = [part_type] if isinstance(part_type, str) else list(part_type)
-    slots: Set[Tuple[str, int]] = set()
-    for mode in modes:
-        if mode in ("", "none"):
-            continue
-        if mode in PARTIAL_LAYER_MODES:
-            n = PARTIAL_LAYER_MODES[mode]
-            slots |= {(c, k) for c in CELLS for k in range(min(n, target.height(c)))}
-        elif mode in PARTIAL_WALL_MODES:
-            for c in WALLS[PARTIAL_WALL_MODES[mode]]:
-                slots |= {(c, k) for k in range(target.height(c))}
-        else:
-            raise ValueError(f"Unknown part_type '{mode}'; expected one of {PARTIAL_MODES}")
-    return slots
-
-
-def _close_slots(target: Board, slots: Set[Tuple[str, int]]) -> Set[Tuple[str, int]]:
-    """
-    Shrink `slots` until it is a buildable board: every kept block rests on a
-    kept block (or the floor), and every kept domino half has its partner kept.
-    Iterates to a fixed point, because cutting one stack can orphan a domino
-    higher up in a neighbouring stack.
-    """
-    keep = set(slots)
-    changed = True
-    while changed:
-        changed = False
-        for c, k in sorted(keep):
-            if (c, k) not in keep:
-                continue
-            drop = k > 0 and (c, k - 1) not in keep
-            if not drop and is_large(target.stacks[c][k]):
-                p = target.partner(c, k)
-                drop = p is None or (p, k) not in keep
-            if drop:
-                keep.discard((c, k))
-                changed = True
-    return keep
-
-
 def start_board(entry: Dict, part_type: Union[None, str, Iterable[str]] = "none") -> Board:
     """Starting board for a dataset entry ("none" = empty board)."""
     return Board.from_partial(Board.from_structure(entry), part_type)
-
-
-def partial_report(target: Board, start: Board,
-                   part_type: Union[None, str, Iterable[str]]) -> Dict:
-    """What a part-complete start contains and which selected slots were dropped."""
-    selected = partial_slots(target, part_type)
-    kept = {(c, k) for c in CELLS for k in range(start.height(c))}
-    return {
-        "part_type": part_type,
-        "start_blocks": start.n_blocks(),
-        "target_blocks": target.n_blocks(),
-        "moves_remaining": target.n_blocks() - start.n_blocks(),
-        "dropped_slots": sorted(selected - kept),   # cut because a domino left the selection
-    }
-
 
 def check_structure(entry: Dict) -> List[str]:
     """Return a list of consistency problems in a dataset entry (empty = OK)."""

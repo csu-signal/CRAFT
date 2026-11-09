@@ -90,9 +90,9 @@ def assign_archetype(structure_index: int, director_id: str, run: int, previousD
     """Same rule as DirectorAgent.__init__: hash((structure_index, director_num, run)).
     Hashes of int tuples are stable across processes (PYTHONHASHSEED only affects str/bytes)."""
     if os.path.isdir(previousData):
-        filepath = f"{previousData}/dpip_structure_{structure_index + 1:03d}_{run}.json"
+        filepath = f"{previousData}/dpip_structure_{structure_index + 1:03d}_1.json"
         if not os.path.exists(filepath):
-            filepath = f"{previousData}/craft_structure_{structure_index + 1:03d}_{run}.json"
+            filepath = f"{previousData}/craft_structure_{structure_index + 1:03d}_1.json"
         with open(filepath, 'r', encoding='utf-8') as file:
             data = json.load(file)
             return data['games'][0][f'{director_id} Archetype']
@@ -607,13 +607,12 @@ def play_game_directors(entry: Dict, structure_index: int, builder_backend, dire
         turn_backend_failed, is_generation_abort,
     )
     partType = "empty"
-    filepath = f'{previousData}/dpip_structure_{structure_index + 1:03d}_{run}.json'
+    filepath = f'{previousData}/dpip_structure_{structure_index + 1:03d}_1.json'
     if not os.path.exists(filepath):
-        filepath = f'{previousData}/craft_structure_{structure_index + 1:03d}_{run}.json'
+        filepath = f'{previousData}/craft_structure_{structure_index + 1:03d}_1.json'
     with open(filepath, 'r', encoding='utf-8') as file:
         data = json.load(file)
         partType = data['games'][0]['partialCompletionCategory']
-
 
     sid = entry["id"]
     mode = cfg.director_views
@@ -729,6 +728,7 @@ def play_game_directors(entry: Dict, structure_index: int, builder_backend, dire
         "structure_index": structure_index,
         "complexity": entry.get("complexity"),
         "run": run,
+        "partialCompletionCategory": partType,
         "policy": f"directors[{mode}]:{cfg.director_backend}:{cfg.director_model} -> builder:{cfg.backend}:{cfg.model}",
         "config": config_dict(cfg),
         "archetypes": archetypes,
