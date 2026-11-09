@@ -12,12 +12,15 @@ the Anthropic API (--backend anthropic); see "Backends" below.
 
 Rollout design
 --------------
-For every divergence turn t the harness runs two arms:
+For every divergence turn t the harness runs three arms:
 
   * counterfactual arm — step 0 uses the utterance of the director the POLICY
                          chose
   * factual arm        — step 0 uses the utterance of the director HISTORY
                          chose (`turn["builderSelected"]`)
+  * random arm         — RANDOM CONTROL: the Builder hears one director per
+                         turn, drawn uniformly at random (see "Random control
+                         arm" below). Runs by default; --no-random-arm skips it.
 
 Each arm then continues for steps 1..H-1 (turns t+1 .. t+H-1) on ITS OWN board
 and its own conversation. Two independent switches control those turns:
@@ -72,6 +75,35 @@ and its own conversation. Two independent switches control those turns:
       so the arms' step-0 inputs differ ONLY in the recommendation.
       --recommend-step0 single keeps the original single-director step 0.
       The factual arm defaults to 'all' after step 0, as with 'policy'.
+
+Random control arm
+------------------
+The random arm separates the effect of WHICH director the policy picks from
+the effect of simply giving the Builder less to sort through. It mirrors the
+counterfactual arm's format exactly, but every director choice is a uniform
+random draw from the directors who spoke instead of the policy's pick:
+
+  * counterfactual 'policy' (and any non-recommend rule): the random arm hears
+    ONE randomly drawn director per follow-on turn.
+  * counterfactual 'recommend': the random arm hears all speaking directors
+    plus a recommendation naming a randomly drawn director (step 0 too, when
+    --recommend-step0 recommend), so it controls for the recommendation's
+    content rather than its presence.
+
+--random-step0 sets the random arm's divergence-turn director:
+  nonhistory (default) uniform over the speaking directors OTHER than
+             history's. This mirrors the counterfactual arm, whose policy pick
+             differs from history on every divergence turn by construction;
+             the two arms then differ only in who made the choice.
+  random     uniform over all speaking directors (can equal history's).
+  policy     the policy's logged pick, so step 0 is identical to the
+             counterfactual arm and only the follow-on selection rule differs.
+
+Draws are seeded from --random-seed and the decision's identity (game, turn,
+arm, step), so they are reproducible, independent of turn order, and identical
+on --resume. Paired deltas are reported for counterfactual − factual (as
+before), random − factual, and counterfactual − random; the last one is the
+policy's value over random selection with the same information restriction.
 
 In every mode the ONLY difference between the arms is the step-0 director
 choice; everything downstream is the consequence of that choice.
@@ -135,8 +167,8 @@ Caveats that matter for interpretation
     Later steps are therefore computed on a shrinking subset of turns; the
     per-step `n` in the summary shows this. Compare step 2 against step 0
     restricted to the same turns (`final_full_horizon`) rather than pooled.
-  * Cost: 2 arms x H steps LLM calls per divergence turn (6x the old
-    single-arm harness at H=3), plus 3 director calls per follow-on step with
+  * Cost: 3 arms x H steps LLM calls per divergence turn (2 with
+    --no-random-arm), plus 3 director calls per arm per follow-on step with
     --followon-source generate. The script prints an upper bound on the number
     of calls before starting. Smoke-test with --limit first.
 
@@ -176,6 +208,9 @@ Usage
     # 3) Same run with Claude as Builder and directors:
     python run_multiTurn_builder_local.py ... --backend anthropic --model claude-sonnet-5-5
     # -> .../multiTurn/claude_claude-sonnet-5-5__policy_seed77_...
+
+    # The random control arm runs automatically; to skip it:
+    python run_multiTurn_builder_local.py ... --no-random-arm
 
     # See exactly what the Builder receives (first 2 turns printed, all steps saved):
     python run_multiTurn_builder_local.py ... --limit 3 --print-prompts 2 --save-prompts all
@@ -1321,11 +1356,34 @@ def make_sat_fn(target_raw):
 
 
 # --------------------------------------------------------------------------- #
+# Random single-director baseline
+# --------------------------------------------------------------------------- #
+RANDOM_STEP0_MODES = ("nonhistory", "random", "policy")
+ARMS = ("counterfactual", "factual", "random")
+ARM_PREFIX = {"counterfactual": "cf", "factual": "fa", "random": "ra"}
+# Paired comparisons reported in the summary: (minuend, subtrahend).
+ARM_PAIRS = (("counterfactual", "factual"), ("random", "factual"), ("counterfactual", "random"))
+
+
+def random_draw(seed: int, *identity, pool: List[str]) -> str:
+    """
+    Uniform draw from `pool`, seeded from --random-seed plus the identity of
+    the decision (game, turn, arm, step). A string seed makes random.Random
+    deterministic across processes, so draws are reproducible, independent of
+    the order turns are run in, and identical on --resume.
+    """
+    key = "|".join(str(x) for x in (seed,) + identity)
+    return random.Random(key).choice(sorted(pool))
+
+
+# --------------------------------------------------------------------------- #
 # Follow-on director turns
 # --------------------------------------------------------------------------- #
 FOLLOWON_SOURCES = ("generate", "history")
 FOLLOWON_SELECTS = ("all", "best", "policy", "recommend")
 POLICY_SELECTS = ("policy", "recommend")
+# Selection rules after which the factual arm defaults to 'all'.
+FACTUAL_ALL_BY_DEFAULT = POLICY_SELECTS
 DEFAULT_RECOMMEND_TEMPLATE = ("RECOMMENDATION: Prioritize {director}'s instruction. "
                               "Use the other directors' messages to resolve ambiguity.")
 CONVERSATION_KEYS = ("conversation_snapshot", "conversation_history", "conversation")
@@ -1594,13 +1652,36 @@ def generate_director_messages(directors: Dict, board, views: Dict, conversation
 
 
 def run_followon_step(agent, arm, k, msgs, speaking, board, spans, target_norm, select,
-                      oracle_moves=None):
+                      oracle_moves=None, random_identity=None, random_note_template=None):
     """Builder turn at a follow-on step under the chosen selection rule."""
     if select == "all":
         utterance = "\n".join(f"{d}: {msgs[d]['text']}" for d in speaking)
         step, board, spans = execute_step(agent, arm, k, None, utterance, board, spans, target_norm,
                                           oracle_moves)
         step["selection"] = {"mode": "all", "speaking": speaking}
+        return step, board, spans
+
+    if select == "random":
+        # Random control arm: the director is drawn uniformly from those who
+        # spoke instead of chosen by the policy. Without a note template the
+        # Builder hears only that director (control for 'policy'); with one it
+        # hears everyone plus a recommendation naming the random director
+        # (control for 'recommend').
+        chosen = random_draw(*random_identity, pool=speaking)
+        print(f"    [{arm:<14} t+{k}] random pick from {speaking} -> {chosen}")
+        note = None
+        if random_note_template:
+            utterance = "\n".join(f"{d}: {msgs[d]['text']}" for d in speaking)
+            note = random_note_template.format(director=chosen)
+        else:
+            utterance = f"{chosen}: {msgs[chosen]['text']}"
+        step, board, spans = execute_step(
+            agent, arm, k, chosen, utterance,
+            board, spans, target_norm, oracle_moves, builder_note=note,
+        )
+        step["selection"] = {"mode": "random", "chosen": chosen, "speaking": speaking,
+                             "as_recommendation": bool(random_note_template),
+                             "p_chosen": round(1.0 / len(speaking), 6)}
         return step, board, spans
 
     # select == "best": the Builder hears each director alone; keep the move
@@ -1653,6 +1734,7 @@ def run_rollout(
       history:  the logged CRAFT D1-D3 messages for turn t+k
       all:      Builder hears every non-silent director
       best:     Builder hears each director alone; best-scoring move is kept
+      random:   Builder hears one speaking director drawn uniformly at random
     Every step is scored against the target and the historical board.
     """
     source, select = followon["source"], followon["select"]
@@ -1691,7 +1773,8 @@ def run_rollout(
                 target_norm, oracle_moves, check_tokens=check_tokens, builder_note=note0,
             )
             step["selection"] = {"mode": "divergence", "chosen": director,
-                                 "step0_mode": followon.get("step0_mode") or "single"}
+                                 "step0_mode": followon.get("step0_mode") or "single",
+                                 "source": followon.get("step0_source", {}).get(arm, "logged")}
             step["oracle_source"] = "craft" if oracle_moves else None
             if policy is not None:
                 row_t = dict(row)
@@ -1770,6 +1853,10 @@ def run_rollout(
                 step, board, spans = run_followon_step(
                     agent, arm, k, msgs, speaking, board, spans, target_norm, select,
                     oracle_moves=step_oracle,
+                    random_identity=(followon.get("random_seed", 0), "followon",
+                                     structure_id, turn_index, combo, arm, k),
+                    random_note_template=(followon["recommend_template"]
+                                          if followon.get("random_as_recommend") else None),
                 )
             step["director_messages"] = msgs
             step["oracle_source"] = "regenerated" if oracle_meta else None
@@ -1958,6 +2045,9 @@ def auto_out_dir(args, cf_select: str, fa_select: str, director_model_name: str)
       <local|claude>_<builder>__<policy>__<split>__<filter>__<oracle>__h<H>_n<N>__<source>-<select>
     plus optional parts only when they differ from the defaults:
       fa-<select>      factual follow-on rule, if not the default
+      noRand           random control arm switched off
+      r0<mode>         random arm's step-0 rule, if not 'nonhistory'
+      rseed<k>         random arm's seed, if not 0
       dir-<model>      generated-director model, if different from the Builder
       eff-<level>      Claude effort level, if set
       fpol-<policy>    follow-on policy .pt, if not the policy behind the divergence data
@@ -1979,11 +2069,18 @@ def auto_out_dir(args, cf_select: str, fa_select: str, director_model_name: str)
         parts.append(f"{args.followon_source}-{cf_select}")
         if cf_select == "recommend" and getattr(args, "recommend_step0", "recommend") == "single":
             parts.append("s0single")
-        default_fa = "all" if cf_select in POLICY_SELECTS else cf_select
+        default_fa = "all" if cf_select in FACTUAL_ALL_BY_DEFAULT else cf_select
         if fa_select != default_fa:
             parts.append(f"fa-{fa_select}")
         if args.followon_source == "generate" and director_model_name != args.model:
             parts.append(f"dir-{_slug(director_model_name)}")
+    if args.no_random_arm:
+        parts.append("noRand")
+    else:
+        if args.random_step0 != "nonhistory":
+            parts.append(f"r0{args.random_step0}")
+        if args.random_seed != 0:
+            parts.append(f"rseed{args.random_seed}")
     if args.effort and "anthropic" in (args.backend, args.director_backend):
         parts.append(f"eff-{args.effort}")
     if args.policy_path and args.policy_path.stem != tag:
@@ -2054,7 +2151,11 @@ def main() -> None:
     ap.add_argument("--min-request-interval", type=float, default=0.0,
                     help="(anthropic) Minimum seconds between API calls, to stay under rate limits.")
     ap.add_argument("--dataset", default="Abhijnan/craft-benchmark-lean")
-    ap.add_argument("--arms", choices=["both", "counterfactual", "factual"], default="both")
+    ap.add_argument("--arms", choices=["both", "counterfactual", "factual"], default="both",
+                    help="Policy/history arms to run. The random control arm runs in addition "
+                         "unless --no-random-arm is given.")
+    ap.add_argument("--no-random-arm", action="store_true",
+                    help="Skip the random control arm (runs by default; see 'Random control arm').")
     ap.add_argument("--horizon", type=int, default=3,
                     help="Turns to roll out from each divergence point, including the divergence "
                          "turn itself (3 = turns t, t+1, t+2).")
@@ -2068,7 +2169,8 @@ def main() -> None:
                          "the highest IoU vs target (oracle selection). history+best ablates "
                          "compounding returns from director selection alone. 'policy': the "
                          "policy's pick only. 'recommend': all directors plus the policy's pick "
-                         "as a recommendation in the Builder prompt.")
+                         "as a recommendation in the Builder prompt. (The random control arm "
+                         "always mirrors this rule with random picks.)")
     ap.add_argument("--director-module", default="director_agent_local",
                     help="Module (file name without .py) that defines DirectorAgent.")
     ap.add_argument("--director-model", default=None,
@@ -2099,7 +2201,7 @@ def main() -> None:
                          "the argmax is silent, take the best-scoring director who spoke (logged).")
     ap.add_argument("--factual-followon-select", choices=FOLLOWON_SELECTS, default=None,
                     help="Follow-on selection for the FACTUAL arm. Default: same as "
-                         "--followon-select, except 'all' when that is 'policy'.")
+                         "--followon-select, except 'all' when that is 'policy' or 'recommend'.")
     ap.add_argument("--recommend-step0", choices=["recommend", "single"], default="recommend",
                     help="(recommend mode) Divergence turn: 'recommend' (default) gives BOTH arms all "
                          "three historical messages plus a recommendation naming that arm's director; "
@@ -2107,6 +2209,14 @@ def main() -> None:
     ap.add_argument("--recommend-template", default=DEFAULT_RECOMMEND_TEMPLATE,
                     help="(recommend mode) Recommendation appended to the Builder prompt; must "
                          "contain {director}.")
+    ap.add_argument("--random-step0", choices=RANDOM_STEP0_MODES, default="nonhistory",
+                    help="Random arm's divergence-turn director: 'nonhistory' (default) uniform "
+                         "over speaking directors other than history's, mirroring the policy arm; "
+                         "'random' uniform over all speaking directors; 'policy' the policy's "
+                         "logged pick, so only the follow-on selection rule is randomized.")
+    ap.add_argument("--random-seed", type=int, default=0,
+                    help="Seed for the random arm's draws. Draws also depend on the decision's "
+                         "identity, so they are reproducible and stable under --resume.")
     ap.add_argument("--policy-check-only", action="store_true",
                     help="Rebuild the policy's input at every divergence turn, check its argmax "
                          "matches the logged 'predicted' director, report the rate and exit. "
@@ -2185,11 +2295,16 @@ def main() -> None:
         return backends[name]
 
     cf_select = args.followon_select
-    fa_select = args.factual_followon_select or ("all" if cf_select in POLICY_SELECTS else cf_select)
+    fa_select = args.factual_followon_select or (
+        "all" if cf_select in FACTUAL_ALL_BY_DEFAULT else cf_select)
     if "{director}" not in args.recommend_template:
         sys.exit("--recommend-template must contain {director}.")
     step0_mode = ("recommend" if cf_select == "recommend" and args.recommend_step0 == "recommend"
                   else "single")
+    if not args.no_random_arm:
+        print(f"[random] Random control arm ON: mirrors the counterfactual arm "
+              f"('{cf_select}') with uniformly random director picks; step 0 = "
+              f"'{args.random_step0}'; random seed {args.random_seed}.")
 
     # Output folder: explicit --out-dir wins; otherwise build the name from the
     # settings so runs never collide. Either way, never overwrite silently.
@@ -2271,6 +2386,7 @@ def main() -> None:
 
     run_cf = args.arms in ("both", "counterfactual")
     run_fa = args.arms in ("both", "factual")
+    run_ra = not args.no_random_arm
 
     builder_backend = get_backend(args.backend)
     if not args.skip_preflight and not args.preview_director_prompt and not args.policy_check_only:
@@ -2328,6 +2444,7 @@ def main() -> None:
             "policy": policy,
             "step0_mode": step0_mode,
             "recommend_template": args.recommend_template,
+            "random_seed": args.random_seed,
             "oracle": oracle_regen,
             "target_raw": struct_entry["structure"],
             "target_spans": target_spans_for(struct_entry),
@@ -2368,6 +2485,8 @@ def main() -> None:
             arm_selects["counterfactual"] = cf_select
         if run_fa:
             arm_selects["factual"] = fa_select
+        if run_ra:
+            arm_selects["random"] = "random"
         b_calls, d_calls = estimate_max_calls(
             len(turns), len(arm_selects), args.horizon,
             args.followon_source if LocalDirectorAgent is not None else "history",
@@ -2416,12 +2535,16 @@ def main() -> None:
     all_turns_counter: Dict[str, List[Dict]] = defaultdict(
         list, {k: list(v) for k, v in saved_by_game.items()})
     stats: Dict[str, int] = defaultdict(int)
-    # step -> endpoint -> values
-    deltas_by_step: Dict[int, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
+    # pair -> step -> endpoint -> values, for every (minuend, subtrahend) in ARM_PAIRS
+    deltas_by_pair = {pr: defaultdict(lambda: defaultdict(list)) for pr in ARM_PAIRS}
+    # pair -> endpoint -> values, turns where both arms of the pair reached the full horizon
+    full_horizon_by_pair = {pr: defaultdict(list) for pr in ARM_PAIRS}
+    # counterfactual − factual keeps its original names for downstream analysis
+    deltas_by_step = deltas_by_pair[("counterfactual", "factual")]
     # step -> metric -> values (absolute, per arm, vs ground truth)
     gt_by_step: Dict[int, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
     # turns where both arms reached the full horizon: step0 vs final on the SAME turns
-    full_horizon: Dict[str, List[float]] = defaultdict(list)
+    full_horizon = full_horizon_by_pair[("counterfactual", "factual")]
     deltas_by_director: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
     deltas_by_move_type: Dict[str, Dict[str, List[float]]] = defaultdict(lambda: defaultdict(list))
     horizon_reached_counts: Dict[int, int] = defaultdict(int)
@@ -2435,70 +2558,91 @@ def main() -> None:
         predicted = record["counterfactualDirector"]
         cf_silent = record["silent_director"]
         director_label = record["director_model_label"]
-        for arm_name, prefix in (("counterfactual", "cf"), ("factual", "fa")):
-            for s in record.get(arm_name, {}).get("steps", []):
+        if record.get("random"):
+            rd = record.get("randomDirector")
+            stats["random_arm_n"] += 1
+            stats["random_step0_equals_history"] += int(rd == record["historicalDirector"])
+            stats["random_step0_equals_policy"] += int(rd == predicted)
+        for arm_name, prefix in ARM_PREFIX.items():
+            for s in (record.get(arm_name) or {}).get("steps", []):
                 stats[f"{prefix}_action_{s['builder_move']['action']}"] += 1
                 stats[f"{prefix}_parse_failure"] += int(s["parse_failed"])
-                if s.get("selection", {}).get("mode") in POLICY_SELECTS:
+                mode = s.get("selection", {}).get("mode")
+                if mode in POLICY_SELECTS:
                     stats[f"{prefix}_policy_steps"] += 1
                     stats[f"{prefix}_policy_picked_silent"] += int(s["selection"]["picked_silent"])
-
-        for arm_name in ("counterfactual", "factual"):
-            for s_ in record.get(arm_name, {}).get("steps", []):
-                if s_.get("oracle_adherent") is not None:
-                    oracle_adherence[s_["step"]][arm_name].append(bool(s_["oracle_adherent"]))
-                if s_.get("span_recorded") is False:
+                elif mode == "random":
+                    stats[f"{prefix}_random_steps"] += 1
+                if s.get("oracle_adherent") is not None:
+                    oracle_adherence[s["step"]][arm_name].append(bool(s["oracle_adherent"]))
+                if s.get("span_recorded") is False:
                     stats["span_not_recorded"] += 1
+                if s.get("progress_vs_ground_truth") is not None:
+                    gt_by_step[s["step"]][f"{arm_name}_progress_vs_ground_truth"].append(
+                        s["progress_vs_ground_truth"])
+                    gt_by_step[s["step"]][f"{arm_name}_iou_vs_ground_truth_board"].append(
+                        s["iou_vs_ground_truth_board"])
 
-        if "counterfactual" in record and "factual" in record:
-            cf_steps = record["counterfactual"]["steps"]
-            fa_steps = record["factual"]["steps"]
-            n_common = min(len(cf_steps), len(fa_steps))
-            horizon_reached_counts[n_common] += 1
-
+        record["delta_pairs"] = {}
+        for a, b in ARM_PAIRS:
+            if not record.get(a) or not record.get(b):
+                continue
+            a_steps, b_steps = record[a]["steps"], record[b]["steps"]
+            n_common = min(len(a_steps), len(b_steps))
+            if n_common == 0:
+                continue
+            store = deltas_by_pair[(a, b)]
             per_step = []
             for k in range(n_common):
-                c, f = cf_steps[k], fa_steps[k]
+                c, f = a_steps[k], b_steps[k]
                 d_full = c["satisfaction_full"] - f["satisfaction_full"]
+                # Always the POLICY director's view, so all pairs use one yardstick.
                 d_policy = c["partial_views"][predicted] - f["partial_views"][predicted]
-                entry = {
-                    "step": k,
-                    "turn": c["turn"],
-                    "full": d_full,
-                    "partial_policy_view": d_policy,
-                    "iou_vs_ground_truth_board": None,
-                }
-                deltas_by_step[k]["full_board"].append(d_full)
-                deltas_by_step[k]["partial_policy_view"].append(d_policy)
+                entry = {"step": k, "turn": c["turn"], "full": d_full,
+                         "partial_policy_view": d_policy, "iou_vs_ground_truth_board": None}
+                store[k]["full_board"].append(d_full)
+                store[k]["partial_policy_view"].append(d_policy)
                 if not cf_silent:
-                    deltas_by_step[k]["full_board_excluding_silent"].append(d_full)
+                    store[k]["full_board_excluding_silent"].append(d_full)
                 if c["iou_vs_ground_truth_board"] is not None and f["iou_vs_ground_truth_board"] is not None:
                     d_gt = c["iou_vs_ground_truth_board"] - f["iou_vs_ground_truth_board"]
                     entry["iou_vs_ground_truth_board"] = d_gt
-                    deltas_by_step[k]["iou_vs_ground_truth_board"].append(d_gt)
-                for arm_name, s in (("counterfactual", c), ("factual", f)):
-                    if s["progress_vs_ground_truth"] is not None:
-                        gt_by_step[k][f"{arm_name}_progress_vs_ground_truth"].append(s["progress_vs_ground_truth"])
-                        gt_by_step[k][f"{arm_name}_iou_vs_ground_truth_board"].append(s["iou_vs_ground_truth_board"])
+                    store[k]["iou_vs_ground_truth_board"].append(d_gt)
                 per_step.append(entry)
                 if verbose:
-                    print(f"    t+{k}: delta_full={d_full:+.4f}  delta_policy_view={d_policy:+.4f}  "
+                    print(f"    {ARM_PREFIX[a]}-{ARM_PREFIX[b]} t+{k}: delta_full={d_full:+.4f}  "
+                          f"delta_policy_view={d_policy:+.4f}  "
                           f"delta_iou_vs_gt={_fmt(entry['iou_vs_ground_truth_board'])}")
 
-            cf_action = cf_steps[0]["builder_move"]["action"]
-            fa_action = fa_steps[0]["builder_move"]["action"]
-            move_type_key = f"{cf_action}/{fa_action}"
             reached_full = n_common == args.horizon
+            record["delta_pairs"][f"{a}_minus_{b}"] = {
+                "steps_compared": n_common, "full_horizon": reached_full, "per_step": per_step}
+            step0, final = per_step[0], per_step[-1]
+            if reached_full:
+                fh = full_horizon_by_pair[(a, b)]
+                fh["step0_full_board"].append(step0["full"])
+                fh["final_full_board"].append(final["full"])
+                fh["step0_partial_policy_view"].append(step0["partial_policy_view"])
+                fh["final_partial_policy_view"].append(final["partial_policy_view"])
+                if final["iou_vs_ground_truth_board"] is not None:
+                    fh["final_iou_vs_ground_truth_board"].append(final["iou_vs_ground_truth_board"])
+                for arm_name, steps in ((a, a_steps), (b, b_steps)):
+                    p = steps[-1]["progress_vs_ground_truth"]
+                    if p is not None:
+                        fh[f"final_{arm_name}_progress_vs_ground_truth"].append(p)
 
+            if (a, b) != ("counterfactual", "factual"):
+                continue
+            # counterfactual − factual only: the original per-turn fields and breakdowns.
+            horizon_reached_counts[n_common] += 1
+            move_type_key = f"{a_steps[0]['builder_move']['action']}/{b_steps[0]['builder_move']['action']}"
             record["move_type"] = move_type_key
             record["delta"] = {
                 "steps_compared": n_common,
                 "full_horizon": reached_full,
-                "progress_before": cf_steps[0]["satisfaction_full_before"],
+                "progress_before": a_steps[0]["satisfaction_full_before"],
                 "per_step": per_step,
             }
-
-            step0, final = per_step[0], per_step[-1]
             for bucket in (deltas_by_director[director_label], deltas_by_move_type[move_type_key]):
                 bucket["step0_full_board"].append(step0["full"])
                 bucket["step0_partial_policy_view"].append(step0["partial_policy_view"])
@@ -2507,18 +2651,6 @@ def main() -> None:
                     bucket["final_partial_policy_view"].append(final["partial_policy_view"])
                     if final["iou_vs_ground_truth_board"] is not None:
                         bucket["final_iou_vs_ground_truth_board"].append(final["iou_vs_ground_truth_board"])
-
-            if reached_full:
-                full_horizon["step0_full_board"].append(step0["full"])
-                full_horizon["final_full_board"].append(final["full"])
-                full_horizon["step0_partial_policy_view"].append(step0["partial_policy_view"])
-                full_horizon["final_partial_policy_view"].append(final["partial_policy_view"])
-                if final["iou_vs_ground_truth_board"] is not None:
-                    full_horizon["final_iou_vs_ground_truth_board"].append(final["iou_vs_ground_truth_board"])
-                for arm_name, steps in (("counterfactual", cf_steps), ("factual", fa_steps)):
-                    p = steps[-1]["progress_vs_ground_truth"]
-                    if p is not None:
-                        full_horizon[f"final_{arm_name}_progress_vs_ground_truth"].append(p)
 
     for count, turn in enumerate(turns, start=1):
         predicted = turn["predicted"]
@@ -2534,7 +2666,8 @@ def main() -> None:
             stats["non_divergence"] += 1
             continue
 
-        cf_msg = turn.get(f"{predicted}_message")
+        cf_director = predicted
+        cf_msg = turn.get(f"{cf_director}_message")
         fa_msg = turn.get(f"{historical}_message")
         if cf_msg is None or fa_msg is None:
             print("  [skip] missing message object for one arm")
@@ -2544,7 +2677,7 @@ def main() -> None:
         cf_silent = is_silent(cf_msg)
         if cf_silent:
             stats["silent_director"] += 1
-            print(f"  [silent] {predicted} produced no utterance this turn")
+            print(f"  [silent] {cf_director} produced no utterance this turn")
             if args.skip_silent:
                 continue
         if is_silent(fa_msg):
@@ -2560,6 +2693,31 @@ def main() -> None:
             print("  [skip] arms disagree on structureBefore — cannot pair")
             stats["board_mismatch"] += 1
             continue
+
+        # Random control arm's step-0 director (--random-step0).
+        ra_director, ra_msg = None, None
+        if run_ra:
+            if args.random_step0 == "policy":
+                ra_director = predicted
+            else:
+                pool = [d for d in DIRECTORS if not is_silent(turn.get(f"{d}_message"))]
+                if args.random_step0 == "nonhistory":
+                    pool = [d for d in pool if d != historical]
+                if pool:
+                    ra_director = random_draw(args.random_seed, "step0", structure_id, turn_index,
+                                              cf_msg["modelCombo"], pool=pool)
+            if ra_director is not None:
+                ra_msg = turn.get(f"{ra_director}_message")
+                if ra_msg is not None and ra_msg.get("structureBefore") != cf_msg.get("structureBefore"):
+                    ra_msg = None
+            if ra_msg is None:
+                stats["random_arm_skipped"] += 1
+                print(f"  [random] no eligible director for the random arm's step 0 "
+                      f"(--random-step0 {args.random_step0}); running the other arms only")
+            else:
+                print(f"  [random] step-0 director {ra_director}"
+                      + (" (same as history)" if ra_director == historical else "")
+                      + (" (same as policy)" if ra_director == predicted else ""))
 
         row = craft_index.get((turn_index, structure_id, director_model))
         if row is None:
@@ -2624,7 +2782,7 @@ def main() -> None:
             if args.policy_check_only:
                 continue
 
-        ident = (turn_index, str(row["structure_id"]), cf_msg["modelCombo"], predicted, historical)
+        ident = (turn_index, str(row["structure_id"]), cf_msg["modelCombo"], cf_director, historical)
         if ident in done:
             aggregate(done.pop(ident), verbose=False)
             stats["resumed"] += 1
@@ -2637,8 +2795,9 @@ def main() -> None:
             "structure_id": row["structure_id"],
             "modelCombo": cf_msg["modelCombo"],
             "director_model_label": director_label,
-            "counterfactualDirector": predicted,
+            "counterfactualDirector": cf_director,
             "historicalDirector": historical,
+            "randomDirector": ra_director if ra_msg is not None else None,
             "silent_director": cf_silent,
             "horizon": args.horizon,
             "followon_source": args.followon_source,
@@ -2646,6 +2805,9 @@ def main() -> None:
             "factual_followon_select": fa_select,
             "step0_mode": step0_mode,
             "recommend_template": args.recommend_template if "recommend" in (cf_select, fa_select) else None,
+            "random_arm": run_ra,
+            "random_step0": args.random_step0 if run_ra else None,
+            "random_seed": args.random_seed if run_ra else None,
             "policy_check": policy_check,
             "oracle_every_turn": args.oracle_every_turn,
             "oracle_check": oracle_check,
@@ -2659,6 +2821,9 @@ def main() -> None:
 
         try:
             followon_cf = make_followon(row, struct_by_id[row["structure_id"]], cf_select)
+            followon_cf["step0_source"] = {
+                "counterfactual": "policy", "factual": "history",
+                "random": "policy" if args.random_step0 == "policy" else f"random:{args.random_step0}"}
             followon_fa = {**followon_cf, "select": fa_select}
             followon = followon_cf
         except Exception as exc:  # noqa: BLE001
@@ -2692,7 +2857,7 @@ def main() -> None:
 
         if run_cf:
             record["counterfactual"] = run_rollout(
-                agent, "counterfactual", predicted, cf_msg,
+                agent, "counterfactual", cf_director, cf_msg,
                 followon=followon_cf, check_tokens=(count == 1), **rollout_kwargs,
             )
 
@@ -2701,6 +2866,15 @@ def main() -> None:
             # dialogue; only the step-0 director differs.
             record["factual"] = run_rollout(
                 agent, "factual", historical, fa_msg, followon=followon_fa, **rollout_kwargs,
+            )
+
+        if ra_msg is not None:
+            # Random control: same format as the counterfactual arm, but every
+            # director choice is a uniform random draw.
+            followon_ra = {**followon_cf, "select": "random",
+                           "random_as_recommend": cf_select == "recommend"}
+            record["random"] = run_rollout(
+                agent, "random", ra_director, ra_msg, followon=followon_ra, **rollout_kwargs,
             )
 
         aggregate(record)
@@ -2751,6 +2925,16 @@ def main() -> None:
         "factual_followon_select": fa_select,
         "step0_mode": step0_mode,
         "recommend_template": args.recommend_template if "recommend" in (cf_select, fa_select) else None,
+        "random_arm": ({
+            "random_seed": args.random_seed,
+            "random_step0": args.random_step0,
+            "mirrors_counterfactual_rule": cf_select,
+            "turns_with_random_arm": stats["random_arm_n"],
+            "turns_without_random_arm": stats["random_arm_skipped"],
+            "followon_random_steps": stats["ra_random_steps"],
+            "step0_draw_equals_history": stats["random_step0_equals_history"],
+            "step0_draw_equals_policy": stats["random_step0_equals_policy"],
+        } if run_ra else None),
         "save_prompts": args.save_prompts,
         "policy_path": str(args.policy_path) if args.policy_path else None,
         "policy_feature_mode": policy.cfg.FEATURE_MODE if policy else None,
@@ -2793,7 +2977,8 @@ def main() -> None:
         "silent_director_count": stats["silent_director"],
         "silent_director_rate": round(silent_rate, 4),
         "skip_silent": args.skip_silent,
-        "parse_failures": {"counterfactual": stats["cf_parse_failure"], "factual": stats["fa_parse_failure"]},
+        "parse_failures": {"counterfactual": stats["cf_parse_failure"], "factual": stats["fa_parse_failure"],
+                           "random": stats["ra_parse_failure"] if run_ra else None},
         "action_counts": {k: v for k, v in stats.items() if "_action_" in k},
         "skipped": {
             k: stats[k] for k in (
@@ -2806,15 +2991,23 @@ def main() -> None:
         "sec_per_turn": round(elapsed / max(processed, 1), 2),
     }
 
-    if run_cf and run_fa:
-        summary["paired_delta_by_step"] = {
-            f"t+{k}": {name: pack(vals) for name, vals in endpoints.items()}
-            for k, endpoints in sorted(deltas_by_step.items())
-        }
+    def by_step(store):
+        return {f"t+{k}": {name: pack(vals) for name, vals in endpoints.items()}
+                for k, endpoints in sorted(store.items())}
+
+    if gt_by_step:
         summary["ground_truth_by_step"] = {
             f"t+{k}": {name: pack(vals) for name, vals in metrics.items()}
             for k, metrics in sorted(gt_by_step.items())
         }
+    for a, b in ARM_PAIRS[1:]:
+        if deltas_by_pair[(a, b)]:
+            summary[f"paired_delta_by_step_{a}_minus_{b}"] = by_step(deltas_by_pair[(a, b)])
+            summary[f"full_horizon_turns_{a}_minus_{b}"] = {
+                name: pack(vals) for name, vals in full_horizon_by_pair[(a, b)].items()}
+
+    if run_cf and run_fa:
+        summary["paired_delta_by_step"] = by_step(deltas_by_step)
         summary["full_horizon_turns"] = {name: pack(vals) for name, vals in full_horizon.items()}
         summary["paired_delta_by_director"] = {
             label: {name: pack(vals) for name, vals in endpoints.items()}
@@ -2835,21 +3028,40 @@ def main() -> None:
     for k, v in summary.items():
         if k == "run_args":
             continue
-        if not k.startswith(("paired_delta", "ground_truth_by_step", "full_horizon_turns")):
+        if not k.startswith(("paired_delta", "ground_truth_by_step", "full_horizon_turns",
+                             "random_arm")):
             print(f"  {k:<28} {v}")
+    if summary.get("random_arm"):
+        print(f"  {'random_arm':<28} {summary['random_arm']}")
     if "paired_delta_by_step" in summary:
         print("  " + "-" * 72)
-        print("  PAIRED DELTA BY STEP")
+        print("  PAIRED DELTA BY STEP  (counterfactual − factual)")
         for step, endpoints in summary["paired_delta_by_step"].items():
             print_table(step, endpoints, indent="    ")
+    for a, b, meaning in (("random", "factual", "random selection vs history"),
+                          ("counterfactual", "random", "policy vs random selection, same information")):
+        key = f"paired_delta_by_step_{a}_minus_{b}"
+        if key in summary:
+            print("  " + "-" * 72)
+            print(f"  PAIRED DELTA BY STEP  ({a} − {b}: {meaning})")
+            for step, endpoints in summary[key].items():
+                print_table(step, endpoints, indent="    ")
+    if "ground_truth_by_step" in summary:
         print("  " + "-" * 72)
         print("  EACH ARM vs GROUND-TRUTH TRAJECTORY BY STEP")
         print("  (progress_vs_ground_truth > 0 means the arm is closer to the target than history was)")
         for step, metrics in summary["ground_truth_by_step"].items():
             print_table(step, metrics, indent="    ")
+    if "full_horizon_turns" in summary:
         print("  " + "-" * 72)
-        print_table("TURNS REACHING FULL HORIZON (step 0 vs final, same turns)",
+        print_table("TURNS REACHING FULL HORIZON (step 0 vs final, same turns; counterfactual − factual)",
                     summary["full_horizon_turns"])
+    for a, b in ARM_PAIRS[1:]:
+        key = f"full_horizon_turns_{a}_minus_{b}"
+        if summary.get(key):
+            print("  " + "-" * 72)
+            print_table(f"TURNS REACHING FULL HORIZON ({a} − {b})", summary[key])
+    if "paired_delta_by_director" in summary:
         print("  " + "-" * 72)
         print("  BY DIRECTOR MODEL")
         for label, endpoints in summary["paired_delta_by_director"].items():
@@ -2864,6 +3076,10 @@ def main() -> None:
             f"  ⚠ Silent-director rate {silent_rate:.1%} exceeds 10%. Compare 'full_board'\n"
             f"    against 'full_board_excluding_silent' before reading delta as policy quality."
         )
+    if run_ra and stats["random_arm_n"]:
+        print(f"  ℹ Random arm's step-0 director matched history's on "
+              f"{stats['random_step0_equals_history']}/{stats['random_arm_n']} turns and the "
+              f"policy's on {stats['random_step0_equals_policy']}/{stats['random_arm_n']}.")
     if policy is not None and stats["policy_check_n"] and \
             stats["policy_check_agree"] / stats["policy_check_n"] < 0.9:
         print(f"  ⚠ The loaded policy reproduced only {stats['policy_check_agree']}/"

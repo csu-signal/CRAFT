@@ -12,15 +12,25 @@
 # python run_craft.py --mode local --director qwen-7b --no_tools --structures 0,1,2
 
 # # Custom output dir
-# python run_craft.py --mode api --director gpt-4o --output my_results --turns 15# 
+# python run_craft.py --mode api --director gpt-4o --output my_results --turns 15#
+
+# # Utterance-selection conditions (full games), see "UTTERANCE SELECTION" below:
+# #   baseline -- the Builder hears every director (the original game)
+# #   policy   -- the Builder hears only the policy's chosen director
+# #   random   -- the Builder hears one director drawn uniformly at random
+# # Every turn of every game logs all three selections (the policy and random
+# # picks are computed as "shadow" choices even when they don't drive the game).
+# python run_craft.py --mode api --director gpt-4o-mini --structures 0,1,2 --turns 20 \
+#     --conditions baseline,policy,random --policy_path /path/to/policy.pt
 
 import os
 import json
 import copy
 import random
 from datetime import datetime
+from pathlib import Path
 from tqdm import tqdm
-from typing import Dict
+from typing import Dict, List, Optional
 import pandas as pd
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -40,7 +50,7 @@ import sys
 
 print("EnhancedGameState from:", inspect.getfile(EnhancedGameState))
 print("get_director_views sig:", inspect.signature(EnhancedGameState.get_director_views))
- 
+
 print([m for m in dir(EnhancedGameState) if not m.startswith("_")])
 
 # ─────────────────────────────────────────
@@ -76,6 +86,122 @@ def chair_history_only_directors(conversation_history: list[str], max_chars=2000
     lines = [ln for ln in conversation_history if ln.startswith(("D1:", "D2:", "D3:"))]
     s = "\n".join(lines)
     return s[-max_chars:]
+
+
+# ─────────────────────────────────────────
+# UTTERANCE SELECTION (baseline / policy / random)
+# ─────────────────────────────────────────
+#
+# Each turn, after the directors have spoken, three selections are computed:
+#   baseline -- every speaking director (what the original game gives the Builder)
+#   policy   -- the policy's pick (only if a policy is loaded)
+#   random   -- a uniform draw from the speaking directors
+# The game's --conditions value decides which one the Builder actually hears;
+# all three are logged in turn_data['utterance_selection'] regardless.
+#
+# Directors always hear each other: conversation_history still gets every
+# director's message. Only the Builder's input is restricted.
+
+DIRECTOR_IDS = ("D1", "D2", "D3")
+CONDITIONS = ("baseline", "policy", "random")
+# Older name for 'baseline', still accepted on the command line.
+CONDITION_ALIASES = {"all": "baseline"}
+SILENT_MESSAGES = {"", "no message provided", "none", "null", "n/a"}
+
+
+def is_silent_message(text) -> bool:
+    return (str(text or "")).strip().lower() in SILENT_MESSAGES
+
+
+def random_pick(seed, *identity, pool: List[str]) -> Optional[str]:
+    """
+    Uniform draw from `pool`, seeded from --random_seed plus the identity of the
+    decision (structure, run, turn). Uses its own random.Random, so it never
+    touches the global RNG that orders the directors, and the draw for a given
+    turn is the same in every condition.
+    """
+    if not pool:
+        return None
+    key = "|".join(str(x) for x in (seed,) + identity)
+    return random.Random(key).choice(sorted(pool))
+
+
+def load_policy_scorer(policy_path, code_dir=None, feature_mode=None, feature_tier=None,
+                       allow_silent=False):
+    """
+    Load the trained index policy with the same PolicyScorer the multi-turn
+    rollout harness uses (run_multiTurn_builder_local.py, in this folder), so
+    directors are scored identically in both places.
+    """
+    try:
+        from run_multiTurn_builder_local import PolicyScorer, find_policy_code_dir
+    except Exception as e:  # noqa: BLE001
+        sys.exit(f"[policy] Could not import PolicyScorer from run_multiTurn_builder_local.py ({e}). "
+                 f"Run from the CRAFT folder that contains that file.")
+    p = Path(policy_path)
+    return PolicyScorer(
+        p, find_policy_code_dir(p, Path(code_dir) if code_dir else None),
+        feature_mode=feature_mode, feature_tier=feature_tier, allow_silent=allow_silent,
+    )
+
+
+class PolicySelector:
+    """
+    Per-game wrapper around PolicyScorer. Keeps each director's ArmState
+    history for THIS game and scores D1-D3 each turn exactly as the policy was
+    trained: history + the current turn's candidate arm -> encode -> argmax.
+
+    score_turn() is called after the directors speak (before the Builder
+    moves); commit() is called once the turn's outcome is known, adding the
+    current turn to the history with its after-board and "followed" tag.
+    """
+
+    def __init__(self, scorer, target_structure, structure_id, model_combo):
+        from run_multiTurn_builder_local import make_sat_fn
+        self.scorer = scorer
+        self.sat_fn = make_sat_fn(target_structure)
+        self.structure_id = structure_id
+        self.combo = model_combo
+        self.hist = {d: [] for d in DIRECTOR_IDS}
+        self._pending = None
+
+    def score_turn(self, turn_number, board_before, messages: Dict[str, str], speaking: List[str]):
+        before = copy.deepcopy(board_before)
+        self._pending = {
+            d: self.scorer.make_arm(d, messages.get(d, ""), turn_number, self.structure_id,
+                                    self.combo, before, before, tag=0,
+                                    sat=self.sat_fn(d, before))
+            for d in DIRECTOR_IDS
+        }
+        if not speaking:
+            return None, None, None
+        scores = self.scorer.score({d: self.hist[d] + [self._pending[d]] for d in DIRECTOR_IDS})
+        chosen, raw = self.scorer.choose(scores, speaking)
+        return chosen, raw, scores
+
+    def commit(self, followed: Optional[str], board_after, move_failed: bool):
+        """followed: the director the Builder heard alone (policy/random
+        conditions), or None when it heard everyone (tag 0, as for CRAFT
+        history in the rollout harness)."""
+        if self._pending is None:
+            return
+        Belief = self.scorer.arm_mod.ConstraintBelief
+        for d, arm in self._pending.items():
+            arm.constraint = Belief(0 if followed is None else (1 if d == followed else -1))
+            arm.structureAfter = copy.deepcopy(board_after)
+            arm.moveFailed = "True" if move_failed else ""
+            self.hist[d].append(arm)
+        self._pending = None
+
+
+def condition_tag(condition, policy_path=None, random_seed=0):
+    if condition == "policy":
+        return f"cond-policy-{Path(policy_path).stem}"
+    if condition == "random":
+        return f"cond-random-rseed{random_seed}"
+    return "cond-baseline"
+
+
 # ─────────────────────────────────────────
 # MAIN EXPERIMENT RUNNER
 # ─────────────────────────────────────────
@@ -89,15 +215,19 @@ def run_craft_experiments(
     api_key="None",
     max_turns=15,
     output_dir="craft_results",
-    use_common_ground=False, 
+    use_common_ground=False,
     run = 1,
     lastPartType = None,
-    shared_model = None, 
+    shared_model = None,
     shared_tokenizer = None,
     builder_tool_use = True,
     use_oracle=False,
     num_oracle = None,
-    max_tokens = None
+    max_tokens = None,
+    condition = "baseline",
+    policy_scorer = None,
+    policy_path = None,
+    random_seed = 0,
 ):
     os.makedirs(output_dir, exist_ok=True)
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -115,15 +245,15 @@ def run_craft_experiments(
 
     print(f"\nLoaded: {sample['id']} (complexity={sample['complexity']})")
     print(f"Metadata: {sample['metadata']}")
-    
-    swapped_dir_views = {d: {row: items[::-1] for row, items in rows.items()} if d in ["D2", "D3"] else rows for d, rows in sample["director_views"].items()} 
+
+    swapped_dir_views = {d: {row: items[::-1] for row, items in rows.items()} if d in ["D2", "D3"] else rows for d, rows in sample["director_views"].items()}
     target_structures_list = [{
         'id'            : sample['id'],
         'complexity'    : sample['complexity'],
         'structure'     : sample['structure'],
         'spans'         : target_spans,
         'director_views': swapped_dir_views,
-        
+
         'metadata'      : sample['metadata']
     }]
 
@@ -138,7 +268,7 @@ def run_craft_experiments(
             'director': director_model_name,
             'builder' : builder_model_name
         },
-        
+
         'use_oracle'     : use_oracle,
         'num_oracle'     : num_oracle,
         'builder_tool_use': builder_tool_use,
@@ -146,6 +276,12 @@ def run_craft_experiments(
         'run'            : run,
         'max_tokens'     : max_tokens,
         'partial_completion': lastPartType,
+        # utterance selection
+        'condition'      : condition,
+        'policy_path'    : str(policy_path) if policy_path else None,
+        'policy_feature_mode': policy_scorer.cfg.FEATURE_MODE if policy_scorer else None,
+        'policy_feature_tier': policy_scorer.cfg.FEATURE_TIER if policy_scorer else None,
+        'random_seed'    : random_seed,
             },
         'games': []
     }
@@ -155,28 +291,29 @@ def run_craft_experiments(
 
     md_path  = f"{model_combo_dir}/craft_{sample['id']}_{run}.md"
     json_path = f"{model_combo_dir}/craft_{sample['id']}_{run}.json"
-    os.makedirs(os.path.dirname(json_path), exist_ok=True)   
+    os.makedirs(os.path.dirname(json_path), exist_ok=True)
     main_grice_correctness_filename = f"{model_combo_dir}/craft_{sample['id']}_correctness_{run}.csv"
 
     with open(md_path, 'w') as f:
         f.write(f"# CRAFT Results — {sample['structure']}\n\n")
-   
+        f.write(f"Condition: {condition}\n\n")
+
     # ── Run each structure ────────────────────────────────────
     for idx, structure_data in enumerate(tqdm(target_structures_list)):
 
         print(f"\n===== Structure {idx+1}: {structure_data['id']} =====")
-        if shared_model is None: 
+        if shared_model is None:
             print("calling api dirs ")
- 
+
             director_agents = {
                 did: DirectorAgent(
                     director_id=did,
                     use_api=True,
                     api_key=api_key,
                     model_name=director_model_name,
-                    structure_index=structure_index,    
-                    run=run,      
-                    max_tokens=max_tokens,                  
+                    structure_index=structure_index,
+                    run=run,
+                    max_tokens=max_tokens,
                 )
                 for did in ["D1", "D2", "D3"]
             }
@@ -189,16 +326,16 @@ def run_craft_experiments(
                 model_name=director_model_name,
                 local_model=shared_model,
                 local_tokenizer=shared_tokenizer,
-                structure_index=structure_index,  
+                structure_index=structure_index,
                 run=run,
-                max_tokens=max_tokens,                        
+                max_tokens=max_tokens,
             )
             for did in ["D1", "D2", "D3"]
         }
 
 
         builder_agent = BuilderAgent(api_key=api_key, model_name=builder_model_name)
-        
+
         common_ground_agent = None
         if use_common_ground:
             common_ground_agent = CommonGroundAgent(
@@ -206,24 +343,35 @@ def run_craft_experiments(
                 api_key=api_key,
                 model_name=common_ground_model_name
             )
+
+        # A fresh policy history for every game.
+        policy_selector = None
+        if policy_scorer is not None:
+            policy_selector = PolicySelector(
+                policy_scorer, structure_data['structure'], structure_data['id'],
+                model_combo=f"{director_model_name}+{builder_model_name}",
+            )
+
         try:
             game_result, correctness, lastPartType = run_single_game(
                 structure_data=structure_data,
-                director_agents=director_agents, 
+                director_agents=director_agents,
                 builder_agent=builder_agent,
-                # chair_agent=chair_agent,             
+                # chair_agent=chair_agent,
                 common_ground_agent=common_ground_agent,
-              
+
                 max_turns=max_turns,
                 structure_idx=idx,
                 correctness=correctness,
-                use_common_ground=use_common_ground, 
+                use_common_ground=use_common_ground,
                 run = run,
                 lastPartType = lastPartType,
                 use_tools = builder_tool_use,
                 use_oracle=use_oracle,
-                num_oracle = num_oracle
-                
+                num_oracle = num_oracle,
+                condition = condition,
+                policy_selector = policy_selector,
+                random_seed = random_seed,
             )
         except Exception as e:
             print(f"Error in structure {idx}: {e}")
@@ -232,23 +380,27 @@ def run_craft_experiments(
                 'error': str(e),
                 'completed': False,
                 'turns_taken': 0,
-                'final_progress': 0.0
+                'final_progress': 0.0,
+                'condition': condition,
             }
 
         all_results['games'].append(game_result)
 
         with open(md_path, 'a') as f:
             f.write(f"\n## {structure_data['id']}\n")
+            f.write(f"- Condition: {condition}\n")
             f.write(f"- Turns: {game_result['turns_taken']}\n")
             f.write(f"- Progress: {game_result.get('final_progress', 0):.3f}\n")
             f.write(f"- Completed: {game_result.get('completed', False)}\n")
+            if game_result.get('selection_summary'):
+                f.write(f"- Selection: {json.dumps(game_result['selection_summary'])}\n")
 
         correctness.index.name = 'Transcript'
         print(correctness)
         correctness.to_csv(main_grice_correctness_filename)
 
     with open(json_path, 'w') as f:
-        json.dump(all_results, f, indent=2)
+        json.dump(all_results, f, indent=2, default=str)
 
     print(f"\nDone. Results: {json_path}")
     return all_results, lastPartType
@@ -262,9 +414,9 @@ def run_single_game(
     structure_data,
     director_agents,
     builder_agent,
-    # chair_agent,  
+    # chair_agent,
     common_ground_agent,
- 
+
     correctness,
     max_turns=15,
     structure_idx=0,
@@ -273,8 +425,11 @@ def run_single_game(
     lastPartType = None,
     use_tools = True,
     use_oracle=False,
-    num_oracle = None
-    
+    num_oracle = None,
+    condition = "baseline",
+    policy_selector = None,
+    random_seed = 0,
+
 ):
     requestCount = 0
     start = time.time()
@@ -290,7 +445,7 @@ def run_single_game(
         partComplete=partComplete,
         partType = lastPartType
     )
-  
+
     # ── Sanity check: stored views vs recomputed ──────────────
     tmp = copy.deepcopy(game_state.current_structure)
     game_state.current_structure = copy.deepcopy(target_structure)
@@ -305,7 +460,7 @@ def run_single_game(
     }
     compare_views("TARGET VIEW CONSISTENCY BEFORE GAME STARTS", target_director_views, raw_views)
 
-    
+
     conversation_history = []
 
     game_results = {
@@ -321,6 +476,7 @@ def run_single_game(
         'final_structure'     : {},
         'stopping_reason'     : 'max_turns_reached',
         'partialCompletion'   : partComplete,
+        'condition'           : condition,
     }
 
     if(partComplete):
@@ -332,9 +488,20 @@ def run_single_game(
 
     game_results['turns'] = []
 
+    # Per-game counts of what each selection method picked.
+    selection_counts = {
+        'turns_selected': 0,
+        'policy_picks': {d: 0 for d in DIRECTOR_IDS},
+        'random_picks': {d: 0 for d in DIRECTOR_IDS},
+        'policy_equals_random': 0,
+        'policy_argmax_was_silent': 0,
+        'builder_heard_single_director': 0,
+        'no_director_spoke': 0,
+    }
+
     # ── MAIN LOOP ─────────────────────────────────────────────
     for turn in range(max_turns):
-        print(f"\n--- Turn {turn+1}/{max_turns} ---")
+        print(f"\n--- Turn {turn+1}/{max_turns} [condition={condition}] ---")
         game_state.increment_turn()
         cValues = {}
         cValues['Turn']=(turn + 1)
@@ -360,7 +527,7 @@ def run_single_game(
             director_responses = {}
             for did in director_order:
                 print(f"  {did} responding...")
- 
+
                 director_prompt = director_agents[did].get_director_prompt(
                     current_view=full_board_state,           # full board, all layers
                     target_view=target_director_views[did],  # partial — director's perspective only
@@ -374,7 +541,7 @@ def run_single_game(
                     available_blocks=game_state.available_blocks
                 )
                 requestCount += 1
-                
+
                 if(resp["internal_thinking"].__contains__("429")):
                     end = time.time()
                     length = end - start
@@ -388,12 +555,12 @@ def run_single_game(
 
                 director_responses[did] = resp
                 conversation_history.append(f"{did}: {resp['public_message']}")
-        
+
                 print(f"  {did}: {resp['public_message'][:80]}")
                 turn_data[f'director_prompt_{did}'] = director_prompt
                 # print(f"  {did} INTENT: {intent}")
             turn_data['director_responses'] = director_responses
-             
+
             def is_validResponse(val):
                 return val[1]['public_message'] != "No message provided"
 
@@ -403,56 +570,137 @@ def run_single_game(
                 for did, r in filter(is_validResponse, director_responses.items())
             )
 
-          
+            # ── Utterance selection ───────────────────────────
+            # director_order samples with replacement, so a director can be
+            # missing this turn; missing and silent directors can't be picked.
+            messages = {d: (director_responses[d]['public_message'] if d in director_responses else "")
+                        for d in DIRECTOR_IDS}
+            speaking = [d for d in DIRECTOR_IDS if not is_silent_message(messages[d])]
+
+            selection = {
+                'condition': condition,
+                'speaking': speaking,
+                'director_order': director_order,
+                'messages': messages,
+                'baseline': {'method': 'baseline', 'directors': speaking,
+                             'utterance': director_discussion_full},
+                'policy': None,
+                'random': None,
+            }
+
+            policy_choice = None
+            if policy_selector is not None:
+                chosen, raw, scores = policy_selector.score_turn(
+                    turn + 1, turn_data['structure_before'], messages, speaking)
+                if chosen is not None:
+                    policy_choice = chosen
+                    selection['policy'] = {
+                        'method': 'policy', 'choice': chosen, 'raw_argmax': raw,
+                        'argmax_was_silent': raw != chosen, 'scores': scores,
+                        'utterance': f"{chosen}: {messages[chosen]}",
+                    }
+                    selection_counts['policy_picks'][chosen] += 1
+                    selection_counts['policy_argmax_was_silent'] += int(raw != chosen)
+                    print(f"  [POLICY] scores "
+                          + " ".join(f"{d}={scores[d]:+.4f}" for d in DIRECTOR_IDS)
+                          + f" -> {chosen}" + (f" (raw argmax {raw} silent)" if raw != chosen else ""))
+
+            random_choice = random_pick(random_seed, structure_data['id'], run, turn + 1, pool=speaking)
+            if random_choice is not None:
+                selection['random'] = {
+                    'method': 'random', 'choice': random_choice, 'pool': speaking,
+                    'p_choice': round(1.0 / len(speaking), 6),
+                    'seed_key': [random_seed, structure_data['id'], run, turn + 1],
+                    'utterance': f"{random_choice}: {messages[random_choice]}",
+                }
+                selection_counts['random_picks'][random_choice] += 1
+                print(f"  [RANDOM] draw from {speaking} -> {random_choice}")
+
+            if policy_choice is not None and random_choice is not None:
+                selection_counts['policy_equals_random'] += int(policy_choice == random_choice)
+
+            # What the Builder actually hears this turn.
+            if condition == "policy" and policy_choice is not None:
+                builder_discussion = selection['policy']['utterance']
+                builder_heard = [policy_choice]
+                used_method = 'policy'
+            elif condition == "random" and random_choice is not None:
+                builder_discussion = selection['random']['utterance']
+                builder_heard = [random_choice]
+                used_method = 'random'
+            else:
+                # 'baseline', or no director spoke (nothing to select from)
+                builder_discussion = director_discussion_full
+                builder_heard = list(speaking)
+                used_method = 'baseline'
+            if not speaking:
+                selection_counts['no_director_spoke'] += 1
+            selection_counts['turns_selected'] += 1
+            selection_counts['builder_heard_single_director'] += int(used_method != 'baseline')
+
+            selection['used_method'] = used_method
+            selection['builder_heard'] = builder_heard
+            selection['builder_input'] = builder_discussion
+            turn_data['utterance_selection'] = selection
+            turn_data['director_discussion_used'] = builder_discussion
+            print(f"  [SELECTION] condition={condition} used={used_method} builder hears {builder_heard}")
+
             oracle_moves = None
             if use_oracle:
                 rng = random.Random(structure_idx * 1000 +  (turn + 1))
-           
+
                 oracle_moves = get_oracle_moves(game_state, n=num_oracle, rng=rng)
                 print(f"  [ORACLE] {len(oracle_moves)} correct moves available this turn with num oracle:{num_oracle}:")
                 for m in oracle_moves:
                     span_str = f" → {m['span_to']}" if m.get('span_to') else ""
                     print(f"    {m['action'].upper()} {m.get('block','')} "
                         f"@ {m['position']} layer {m['layer']}{span_str}")
-                        
+
             builder_prompt = builder_agent.get_builder_prompt(
-                director_discussion=director_discussion_full,
+                director_discussion=builder_discussion,
                 current_state=game_state.current_structure,
                 available_blocks=game_state.available_blocks,
                 use_tools=use_tools,
-                oracle_moves=oracle_moves,  
+                oracle_moves=oracle_moves,
                 builderPromptAddin = BUILDER_PROMPT
             )
-            
+
             if use_tools:
                 builder_move = builder_agent.generate_move_with_tools(
-                director_discussion=director_discussion_full,
+                director_discussion=builder_discussion,
                 game_state=game_state,  # pass state so tool can simulate
-                oracle_moves=oracle_moves, 
+                oracle_moves=oracle_moves,
                 check_prompt_tokens=True  # ← only when needed
             )
             else:
                 builder_move = builder_agent.generate_move(
-                director_discussion=director_discussion_full,
+                director_discussion=builder_discussion,
                 current_state=game_state.current_structure,  # pass state so tool can simulate
                 available_blocks=game_state.available_blocks,
-                oracle_moves=oracle_moves, 
+                oracle_moves=oracle_moves,
             )
-            
+
             print(f"  Builder move: {builder_move}")
             cValues['Transcription'] = director_discussion_full
+            cValues['Condition'] = condition
+            cValues['Selection Method'] = used_method
+            cValues['Builder Heard'] = ",".join(builder_heard)
+            cValues['Policy Choice'] = policy_choice if policy_choice else "N/A"
+            cValues['Random Choice'] = random_choice if random_choice else "N/A"
             cValues['Failed Move']="N/A"
             cValues['Structure Placement']="N/A"
             cValues['Side Placement']="N/A"
             cValues['Overall Structure State']="N/A"
             cValues['Group Agreement']='N/A'
-            #requestCount += 1 
+            #requestCount += 1
 
             # ── Execute ───────────────────────────────────────
+            move_failed = False
             if builder_move['action'] == 'clarify':
                 conversation_history.append(f"Builder: {builder_move['clarification']}")
                 turn_data['move_executed'] = False
                 turn_data['clarification'] = builder_move['clarification']
+                turn_data['builder_prompt'] = builder_prompt
                 cValues['Clarify'] = True
 
             else:
@@ -463,6 +711,7 @@ def run_single_game(
                     turn_data['builder_move_raw'] = copy.deepcopy(builder_move)
 
                 success, progress_data, structurePlacement, sidePlacement, overall = game_state.execute_move(builder_move)
+                move_failed = not success
 
                 if use_oracle and oracle_moves:
                     attempted = builder_move
@@ -502,7 +751,7 @@ def run_single_game(
                     cValues['Overall Structure State']=(overall)
                 cValues['Group Agreement']='N/A'
                 turn_data['director_discussion_full'] = director_discussion_full
-                # turn_data['director_discussion_used'] = director_discussion_used
+                # turn_data['director_discussion_used'] is set in the selection block above
 
                 if success:
                     print(f"  Move OK. Progress: {progress_data['metrics']['overall_progress']:.3f}")
@@ -528,11 +777,20 @@ def run_single_game(
                 if not success:
                     err = progress_data.get('error', 'Unknown')
                     msg = f"Move failed: {err}. Please give different instructions."
-                    #removing board state as well after builder failed move. too much info in context. 
+                    #removing board state as well after builder failed move. too much info in context.
                     conversation_history.append(
                     f"Builder: FAILED — {err}. Board unchanged: {json.dumps(game_state.current_structure)}"
                 )
                     print(f"  Move FAILED: {err}")
+
+            # Add this turn to the policy's per-game history (after-board and
+            # which director the Builder heard alone, if any).
+            if policy_selector is not None:
+                policy_selector.commit(
+                    followed=builder_heard[0] if used_method != 'baseline' else None,
+                    board_after=game_state.current_structure,
+                    move_failed=move_failed,
+                )
 
             # ── Completion check ──────────────────────────────
             if game_state.is_complete():
@@ -548,7 +806,7 @@ def run_single_game(
             # conversation_history = conversation_history[-8:] #harsher trimming
             if len(conversation_history) > 50:
                 conversation_history = conversation_history[-40:]
-             
+
             game_results['turns'].append(turn_data)
 
             # New row data as a single-row DataFrame
@@ -568,6 +826,7 @@ def run_single_game(
     game_results['turns_taken']     = len(game_results['turns'])
     game_results['final_structure'] = copy.deepcopy(game_state.current_structure)
     game_results['final_spans']     = copy.deepcopy(game_state.current_spans)
+    game_results['selection_summary'] = selection_counts
 
     if game_state.progress_tracker.progress_history:
         last = game_state.progress_tracker.progress_history[-1]
@@ -576,7 +835,7 @@ def run_single_game(
 
     game_results['progress_summary'] = game_state.get_progress_summary()
 
-    print(f"\nGame done: {game_results['turns_taken']} turns, "
+    print(f"\nGame done [{condition}]: {game_results['turns_taken']} turns, "
           f"progress={game_results['final_progress']:.3f}, "
           f"completed={game_results['completed']}")
 
@@ -617,6 +876,27 @@ if __name__ == "__main__":
                         help="Quantization for local models (qwen-72b/32b default 4bit)")
     parser.add_argument("--max_tokens",     type=int, default=None,
                         help="Override max output tokens for director (overrides per-model defaults)")
+    # ── Utterance-selection conditions ────────────────────────
+    parser.add_argument("--conditions",     type=str, default="baseline",
+                        help="Comma-separated conditions, each run as its own full game per structure: "
+                             "'baseline' (Builder hears every director, the original game), 'policy' "
+                             "(Builder hears only the policy's pick), 'random' (Builder hears one random "
+                             "director). E.g. 'baseline,policy,random'. 'all' is accepted as an old name "
+                             "for 'baseline'. Default: baseline")
+    parser.add_argument("--policy_path",    type=str, default=None,
+                        help="Trained index policy (.pt). Required for the 'policy' condition; if given, "
+                             "the policy's pick is also logged (not used) in the other conditions.")
+    parser.add_argument("--policy_code_dir", type=str, default=None,
+                        help="Folder with the policy project's config.py/features.py/models.py/arm_state.py. "
+                             "Default: searched next to --policy_path.")
+    parser.add_argument("--policy_feature_mode", type=str, default=None,
+                        help="Override FEATURE_MODE for the policy (must match training).")
+    parser.add_argument("--policy_feature_tier", type=str, default=None,
+                        help="Override FEATURE_TIER for the policy (must match training).")
+    parser.add_argument("--policy_allow_silent", action="store_true",
+                        help="Let the policy pick a silent director (default: best-scoring director who spoke).")
+    parser.add_argument("--random_seed",    type=int, default=0,
+                        help="Seed for the random condition's draws (combined with structure, run and turn).")
     args = parser.parse_args()
 
     api_key = os.getenv('OPENAI_API_KEY')
@@ -637,10 +917,37 @@ if __name__ == "__main__":
     run_tag    = f"run{RUN}"
     print(args)
 
-    OUTPUT_DIR = args.output or (
+    BASE_OUTPUT_DIR = args.output or (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
         f"{oracle_tag}_{tools_tag}_{run_tag}")
+
+    # ── Conditions and policy ─────────────────────────────────
+    CONDITIONS_TO_RUN = [CONDITION_ALIASES.get(c.strip(), c.strip())
+                         for c in args.conditions.split(",") if c.strip()]
+    bad = [c for c in CONDITIONS_TO_RUN if c not in CONDITIONS]
+    if bad:
+        raise ValueError(f"Unknown condition(s) {bad}. Choose from {list(CONDITIONS)}")
+    if "policy" in CONDITIONS_TO_RUN and not args.policy_path:
+        raise ValueError("The 'policy' condition needs --policy_path.")
+
+    POLICY_SCORER = None
+    if args.policy_path:
+        POLICY_SCORER = load_policy_scorer(
+            args.policy_path, code_dir=args.policy_code_dir,
+            feature_mode=args.policy_feature_mode, feature_tier=args.policy_feature_tier,
+            allow_silent=args.policy_allow_silent,
+        )
+
+    def output_dir_for(condition):
+        """'baseline' without --output keeps the original folder, so existing runs line up."""
+        tag = condition_tag(condition, args.policy_path, args.random_seed)
+        if args.output:
+            return os.path.join(args.output, tag)
+        return BASE_OUTPUT_DIR if condition == "baseline" else f"{BASE_OUTPUT_DIR}_{tag}"
+
+    print(f"Conditions: {CONDITIONS_TO_RUN}  ->  "
+          + ", ".join(f"{c}: {output_dir_for(c)}" for c in CONDITIONS_TO_RUN))
 
     LOCAL_MODELS = {
         "mistral-7b":       "mistralai/Mistral-7B-Instruct-v0.3",
@@ -658,10 +965,10 @@ if __name__ == "__main__":
     #     # "qwen7b_dpo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
     #     # "qwen7b_sft_r32_builder" :"/data/open-weight-llms/models/qwen-7b",
     #     "qwen7b_ipo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
-        
+
     #     # "qwen-14b":         "/data/open-weight-llms/models/qwen-14b",
     #     # "qwen-32b":         "/data/open-weight-llms/models/qwen-32b",
-        
+
     #     # "llama-8b":         "/data/open-weight-llms/models/llama-8b",
     #     # "llama-8b_dpo_r32_from_sft":  "/data/open-weight-llms/models/llama-8b",
     #     # "llama-8b_r32_baseline": "/data/open-weight-llms/models/llama-8b",
@@ -736,10 +1043,11 @@ if __name__ == "__main__":
     #     pt = get_part_type_for_structure(i, RUN)
     #     print(f"  structure_{i:02d} → {pt}")
 
-    def run_all_structures(director_model_name, shared_model=None, shared_tokenizer=None):
+    def run_all_structures(director_model_name, condition, shared_model=None, shared_tokenizer=None):
+        output_dir = output_dir_for(condition)
         for structure_index in structure_indices:
             partType = "empty"
-            print(f"\n  [{director_model_name}] structure={structure_index}/{n_structures-1} "
+            print(f"\n  [{director_model_name} | {condition}] structure={structure_index}/{n_structures-1} "
                   f"partType={partType}")
             try:
                 results, _ = run_craft_experiments(
@@ -749,7 +1057,7 @@ if __name__ == "__main__":
                     builder_model_name=BUILDER_MODEL,
                     api_key=api_key,
                     max_turns=MAX_TURNS,
-                    output_dir=OUTPUT_DIR,
+                    output_dir=output_dir,
                     use_common_ground=False,
                     run=RUN,
                     lastPartType=partType,
@@ -759,12 +1067,16 @@ if __name__ == "__main__":
                     use_oracle=USE_ORACLE,
                     num_oracle=ORACLE_N,
                     max_tokens=args.max_tokens if args.max_tokens else MAX_TOKENS_BY_MODEL.get(director_model_name, DEFAULT_MAX_TOKENS),
+                    condition=condition,
+                    policy_scorer=POLICY_SCORER,
+                    policy_path=args.policy_path,
+                    random_seed=args.random_seed,
                 )
-                print(f"  Done [{director_model_name}] structure={structure_index} "
+                print(f"  Done [{director_model_name} | {condition}] structure={structure_index} "
                       f"games={len(results['games'])}")
             except Exception as e:
                 import traceback
-                print(f"  FAILED [{director_model_name}] structure={structure_index}: {e}")
+                print(f"  FAILED [{director_model_name} | {condition}] structure={structure_index}: {e}")
                 traceback.print_exc()
                 continue
 
@@ -772,7 +1084,9 @@ if __name__ == "__main__":
     if DIRECTOR_MODE == "api":
         for model_name in models_to_run_api:
             print(f"\n{'='*60}\nAPI DIRECTOR: {model_name}\n{'='*60}")
-            run_all_structures(director_model_name=model_name)
+            for condition in CONDITIONS_TO_RUN:
+                print(f"\n{'-'*60}\nCONDITION: {condition}\n{'-'*60}")
+                run_all_structures(director_model_name=model_name, condition=condition)
 
     elif DIRECTOR_MODE == "local":
         for model_name, model_path in models_to_run_local.items():
@@ -787,11 +1101,15 @@ if __name__ == "__main__":
                 print(f"FAILED to load {model_name}: {e}")
                 continue
 
-            run_all_structures(
-                director_model_name=model_name,
-                shared_model=shared_model,
-                shared_tokenizer=shared_tokenizer,
-            )
+            # All conditions reuse the loaded model, so it is loaded only once.
+            for condition in CONDITIONS_TO_RUN:
+                print(f"\n{'-'*60}\nCONDITION: {condition}\n{'-'*60}")
+                run_all_structures(
+                    director_model_name=model_name,
+                    condition=condition,
+                    shared_model=shared_model,
+                    shared_tokenizer=shared_tokenizer,
+                )
 
             print(f"\nReleasing {model_name} from memory...")
             try:
