@@ -2,3 +2,10 @@
 
 Condition: baseline
 
+
+## structure_001
+- Condition: baseline
+- Turns: 5
+- Progress: 0.065
+- Completed: False
+- Selection: {"turns_selected": 5, "policy_picks": {"D1": 2, "D2": 2, "D3": 1}, "random_picks": {"D1": 2, "D2": 3, "D3": 0}, "policy_equals_random": 4, "policy_argmax_was_silent": 1, "builder_heard_single_director": 0, "no_director_spoke": 0}
