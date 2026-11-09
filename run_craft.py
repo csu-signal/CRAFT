@@ -23,6 +23,17 @@
 # python run_craft.py --mode api --director gpt-4o-mini --structures 0,1,2 --turns 20 \
 #     --conditions baseline,policy,random --policy_path /path/to/policy.pt
 
+# # Token estimate (no API calls): every builder/director call is answered by the
+# # local Qwen model in token_estimator.py (next to this script) and its tokens are
+# # recorded. Use the API model names you plan to pay for; results go to a separate
+# # "_token_estimate" folder and the totals to token_estimate.json there.
+# python run_craft.py --mode api --director claude-haiku-4-5 --builder claude-haiku-4-5 \
+#     --structures 0 --turns 20 --conditions baseline,policy,random \
+#     --policy_path /path/to/policy.pt --token_estimate
+# # Same, with the estimator served by Ollama (no 30 GB download; runs on a laptop):
+# #   ollama pull qwen2.5:14b-instruct && ollama serve
+# python run_craft.py ... --token_estimate --estimate_backend ollama
+
 import os
 import json
 import copy
@@ -31,6 +42,7 @@ from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
 from typing import Dict, List, Optional
+from collections import defaultdict
 import pandas as pd
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -194,6 +206,77 @@ class PolicySelector:
         self._pending = None
 
 
+# ─────────────────────────────────────────
+# TOKEN ESTIMATE (--token_estimate)
+# ─────────────────────────────────────────
+#
+# Every agent keeps its model client in `.client`, whichever provider it routes
+# to (OpenAI, Anthropic, Gemini's OpenAI endpoint, or Ollama). For an estimate,
+# those clients are replaced with EstimatorClients from token_estimator.py, so
+# the calls themselves are unchanged and nothing reaches an API or Ollama.
+# Gemini directors build a new google.genai Client on every call, so that class
+# is replaced in __main__. Each recorded call is tagged with the role, director
+# model and condition, so the totals can be priced per model.
+
+ESTIMATE_DUMMY_KEYS = ("OPENAI_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
+
+
+def make_estimator_client(est, role):
+    """An EstimatorClient that tags each call it records with `role`."""
+    from token_estimator import EstimatorClient
+
+    class TaggedEstimatorClient(EstimatorClient):
+        def _tag(self, response):
+            with self.est.lock:
+                self.est.calls[-1]["role"] = role
+            return response
+
+        def _openai_create(self, *a, **k):
+            return self._tag(super()._openai_create(*a, **k))
+
+        def _anthropic_create(self, *a, **k):
+            return self._tag(super()._anthropic_create(*a, **k))
+
+        def _gemini_generate(self, *a, **k):
+            return self._tag(super()._gemini_generate(*a, **k))
+
+    return TaggedEstimatorClient(est)
+
+
+def attach_estimator(est, builder_agent, director_agents, common_ground_agent=None):
+    """Point every agent at the estimator instead of its real client."""
+    builder_agent.client = make_estimator_client(est, "builder")
+    for agent in director_agents.values():
+        if getattr(agent, "use_api", True):
+            agent.client = make_estimator_client(est, "director")
+    if common_ground_agent is not None and hasattr(common_ground_agent, "client"):
+        common_ground_agent.client = make_estimator_client(est, "common_ground")
+
+
+def summarize_estimate(est) -> Dict:
+    """Totals overall, by role, and by director model x condition x role,
+    scaled by token_estimator.CORRECTION like est.report()."""
+    from token_estimator import CORRECTION
+
+    def empty():
+        return {"calls": 0, "truncated_calls": 0, "input_tokens": 0, "output_tokens": 0}
+
+    by_role, by_group = defaultdict(empty), defaultdict(empty)
+    for c in est.calls:
+        role = c.get("role", "unknown")
+        group = f"{c.get('director_model', '?')} | {c.get('condition', '?')} | {role}"
+        for bucket in (by_role[role], by_group[group]):
+            bucket["calls"] += 1
+            bucket["truncated_calls"] += int(c["truncated"])
+            bucket["input_tokens"] += c["input_tokens"]
+            bucket["output_tokens"] += c["output_tokens"]
+    for bucket in list(by_role.values()) + list(by_group.values()):
+        bucket["input_tokens"] = round(bucket["input_tokens"] * CORRECTION)
+        bucket["output_tokens"] = round(bucket["output_tokens"] * CORRECTION)
+    return {"totals": est.report(), "by_role": dict(by_role),
+            "by_director_model_condition_role": dict(sorted(by_group.items()))}
+
+
 def condition_tag(condition, policy_path=None, random_seed=0):
     if condition == "policy":
         return f"cond-policy-{Path(policy_path).stem}"
@@ -228,6 +311,7 @@ def run_craft_experiments(
     policy_scorer = None,
     policy_path = None,
     random_seed = 0,
+    token_estimator = None,
 ):
     os.makedirs(output_dir, exist_ok=True)
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -343,6 +427,9 @@ def run_craft_experiments(
                 api_key=api_key,
                 model_name=common_ground_model_name
             )
+
+        if token_estimator is not None:
+            attach_estimator(token_estimator, builder_agent, director_agents, common_ground_agent)
 
         # A fresh policy history for every game.
         policy_selector = None
@@ -897,7 +984,29 @@ if __name__ == "__main__":
                         help="Let the policy pick a silent director (default: best-scoring director who spoke).")
     parser.add_argument("--random_seed",    type=int, default=0,
                         help="Seed for the random condition's draws (combined with structure, run and turn).")
+    parser.add_argument("--token_estimate", action="store_true",
+                        help="Estimate API token usage instead of calling any model: every builder and "
+                             "director call is answered by the local Qwen model in token_estimator.py "
+                             "and its tokens are recorded. Needs token_estimator.py next to this script.")
+    parser.add_argument("--estimate_max_tokens", type=int, default=512,
+                        help="(--token_estimate) Output cap for calls that don't set max_tokens themselves.")
+    parser.add_argument("--estimate_backend", choices=["transformers", "ollama"], default="transformers",
+                        help="(--token_estimate) 'transformers' (default): Qwen2.5-14B loaded locally, "
+                             "~30 GB GPU. 'ollama': the model in --estimate_model served by Ollama "
+                             "(ollama_token_estimator.py next to this script).")
+    parser.add_argument("--estimate_model", type=str, default="qwen2.5:14b-instruct",
+                        help="(--estimate_backend ollama) Ollama model that answers the calls.")
+    parser.add_argument("--estimate_num_ctx", type=int, default=16384,
+                        help="(--estimate_backend ollama) Starting context size; grows automatically "
+                             "if a prompt needs more, so prompts are never cut.")
     args = parser.parse_args()
+
+    if args.token_estimate:
+        # Agents build their real clients before the estimator replaces them,
+        # and some SDKs refuse to construct without a key. Placeholder keys
+        # only fill missing ones; with the estimator no request is ever sent.
+        for k in ESTIMATE_DUMMY_KEYS:
+            os.environ.setdefault(k, "token-estimate")
 
     api_key = os.getenv('OPENAI_API_KEY')
 
@@ -944,7 +1053,44 @@ if __name__ == "__main__":
         tag = condition_tag(condition, args.policy_path, args.random_seed)
         if args.output:
             return os.path.join(args.output, tag)
-        return BASE_OUTPUT_DIR if condition == "baseline" else f"{BASE_OUTPUT_DIR}_{tag}"
+        out = BASE_OUTPUT_DIR if condition == "baseline" else f"{BASE_OUTPUT_DIR}_{tag}"
+        # Estimate runs never write into real result folders.
+        return f"{out}_token_estimate" if args.token_estimate else out
+
+    EST = None
+    if args.token_estimate:
+        try:
+            from token_estimator import TokenEstimator, EstimatorClient
+        except Exception as e:
+            raise SystemExit(f"[estimate] Could not import token_estimator.py ({e}). "
+                             f"Put it next to run_craft.py.")
+        if args.estimate_backend == "ollama":
+            try:
+                from ollama_token_estimator import OllamaTokenEstimator
+            except Exception as e:
+                raise SystemExit(f"[estimate] Could not import ollama_token_estimator.py ({e}). "
+                                 f"Put it next to run_craft.py.")
+            EST = OllamaTokenEstimator(model=args.estimate_model, max_tokens=args.estimate_max_tokens,
+                                       num_ctx=args.estimate_num_ctx)
+        else:
+            print("[estimate] Loading the token estimator (one model for the whole run)...")
+            EST = TokenEstimator(max_tokens=args.estimate_max_tokens)
+        # Gemini directors create google.genai.Client() inside every call.
+        try:
+            from google import genai as _genai
+            _genai.Client = lambda *a, **k: make_estimator_client(EST, "director")
+        except ImportError:
+            pass
+        if DIRECTOR_MODE == "local":
+            print("[estimate] NOTE: --mode local directors run through transformers and are not "
+                  "estimated; only the builder's calls will be counted. Use --mode api with the "
+                  "director model you plan to pay for.")
+        if USE_TOOLS:
+            print("[estimate] NOTE: the estimator can't make simulate_move tool calls, so each "
+                  "builder turn is estimated as a single call. A real tool-using builder makes "
+                  "up to 3 extra round trips per turn, each resending the prompt, so builder "
+                  "tokens are a lower bound. Run with --no_tools for an exact like-for-like count.")
+    ESTIMATE_DIR = (args.output or f"{BASE_OUTPUT_DIR}_token_estimate") if args.token_estimate else None
 
     print(f"Conditions: {CONDITIONS_TO_RUN}  ->  "
           + ", ".join(f"{c}: {output_dir_for(c)}" for c in CONDITIONS_TO_RUN))
@@ -1045,6 +1191,7 @@ if __name__ == "__main__":
 
     def run_all_structures(director_model_name, condition, shared_model=None, shared_tokenizer=None):
         output_dir = output_dir_for(condition)
+        first_call = len(EST.calls) if EST is not None else 0
         for structure_index in structure_indices:
             partType = "empty"
             print(f"\n  [{director_model_name} | {condition}] structure={structure_index}/{n_structures-1} "
@@ -1071,6 +1218,7 @@ if __name__ == "__main__":
                     policy_scorer=POLICY_SCORER,
                     policy_path=args.policy_path,
                     random_seed=args.random_seed,
+                    token_estimator=EST,
                 )
                 print(f"  Done [{director_model_name} | {condition}] structure={structure_index} "
                       f"games={len(results['games'])}")
@@ -1079,6 +1227,10 @@ if __name__ == "__main__":
                 print(f"  FAILED [{director_model_name} | {condition}] structure={structure_index}: {e}")
                 traceback.print_exc()
                 continue
+        if EST is not None:
+            for c in EST.calls[first_call:]:
+                c["director_model"] = director_model_name
+                c["condition"] = condition
 
     # ── Run ───────────────────────────────────────────────────
     if DIRECTOR_MODE == "api":
@@ -1120,5 +1272,24 @@ if __name__ == "__main__":
             gc.collect()
             torch.cuda.empty_cache()
             print("GPU memory released.\n")
+
+    if EST is not None:
+        estimate = summarize_estimate(EST)
+        estimate["sample"] = {
+            "director_models": list(models_to_run_api) or list(models_to_run_local),
+            "builder": BUILDER_MODEL, "conditions": CONDITIONS_TO_RUN,
+            "structures": structure_indices, "max_turns": MAX_TURNS, "builder_tools": USE_TOOLS,
+            "estimate_backend": args.estimate_backend,
+            "estimate_model": args.estimate_model if args.estimate_backend == "ollama" else None,
+        }
+        os.makedirs(ESTIMATE_DIR, exist_ok=True)
+        est_path = os.path.join(ESTIMATE_DIR, "token_estimate.json")
+        with open(est_path, "w") as f:
+            json.dump(estimate, f, indent=2)
+        print("\n" + "=" * 60 + "\nTOKEN ESTIMATE (tokens already scaled by CORRECTION)\n" + "=" * 60)
+        print(json.dumps(estimate, indent=2))
+        print(f"\nSample: {len(structure_indices)} structure(s) x {len(CONDITIONS_TO_RUN)} condition(s) "
+              f"x {len(estimate['sample']['director_models'])} director model(s), up to {MAX_TURNS} turns. "
+              f"Scale by (full run size / sample size). Saved to {est_path}")
 
     print("All done.")
