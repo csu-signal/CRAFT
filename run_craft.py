@@ -312,6 +312,9 @@ def run_craft_experiments(
     policy_path = None,
     random_seed = 0,
     token_estimator = None,
+    builder_parse_retries = 2,
+    builder_max_tokens = None,
+    builder_one_line_instruction = True,
 ):
     os.makedirs(output_dir, exist_ok=True)
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -366,6 +369,9 @@ def run_craft_experiments(
         'policy_feature_mode': policy_scorer.cfg.FEATURE_MODE if policy_scorer else None,
         'policy_feature_tier': policy_scorer.cfg.FEATURE_TIER if policy_scorer else None,
         'random_seed'    : random_seed,
+        'builder_parse_retries': builder_parse_retries,
+        'builder_max_tokens': builder_max_tokens,       # None = provider default (see BuilderAgent)
+        'builder_one_line_instruction': builder_one_line_instruction,
             },
         'games': []
     }
@@ -419,6 +425,11 @@ def run_craft_experiments(
 
 
         builder_agent = BuilderAgent(api_key=api_key, model_name=builder_model_name)
+        builder_agent.max_parse_retries = builder_parse_retries
+        builder_agent.one_line_instruction = builder_one_line_instruction
+        if builder_max_tokens:
+            builder_agent.max_output_tokens = builder_max_tokens
+        all_results['experiment_info']['builder_max_tokens_used'] = builder_agent.max_output_tokens
 
         common_ground_agent = None
         if use_common_ground:
@@ -584,6 +595,17 @@ def run_single_game(
         'policy_argmax_was_silent': 0,
         'builder_heard_single_director': 0,
         'no_director_spoke': 0,
+    }
+    # Builder replies that needed a format re-prompt, and ones that never parsed.
+    parse_counts = {
+        'builder_turns': 0,
+        'turns_with_retry': 0,
+        'retries_total': 0,
+        'unparsed_after_retries': 0,
+        'model_clarify': 0,
+        'rejected_replies': 0,
+        'rejected_by_reason': {},       # empty | no_move_line | parse_error | other
+        'rejected_hit_output_cap': 0,   # rejected replies that stopped at the output cap
     }
 
     # ── MAIN LOOP ─────────────────────────────────────────────
@@ -768,12 +790,38 @@ def run_single_game(
             )
 
             print(f"  Builder move: {builder_move}")
+
+            # Parse retries (see BuilderAgent._retry_unparsed): a reply that
+            # couldn't be parsed is re-prompted up to --builder_parse_retries
+            # times; only if it still fails is the turn recorded as a CLARIFY.
+            attempts = getattr(builder_agent, 'last_attempts', 1) or 1
+            parse_failed = bool(getattr(builder_agent, 'last_parse_failed', False))
+            turn_data['builder_attempts'] = attempts
+            turn_data['builder_parse_failed'] = parse_failed
+            turn_data['builder_raw_text'] = getattr(builder_agent, 'last_raw_text', None)
+            # Every rejected reply this turn: attempt, reason, hit_output_cap, finish_reason, text.
+            rejected = list(getattr(builder_agent, 'last_rejected', []) or [])
+            turn_data['builder_rejected_replies'] = rejected
+            parse_counts['rejected_replies'] += len(rejected)
+            for rec in rejected:
+                parse_counts['rejected_by_reason'][rec['reason']] = \
+                    parse_counts['rejected_by_reason'].get(rec['reason'], 0) + 1
+                parse_counts['rejected_hit_output_cap'] += int(rec['hit_output_cap'])
+            parse_counts['builder_turns'] += 1
+            parse_counts['turns_with_retry'] += int(attempts > 1)
+            parse_counts['retries_total'] += attempts - 1
+            parse_counts['unparsed_after_retries'] += int(parse_failed)
+            parse_counts['model_clarify'] += int(builder_move.get('action') == 'clarify' and not parse_failed)
             cValues['Transcription'] = director_discussion_full
             cValues['Condition'] = condition
             cValues['Selection Method'] = used_method
             cValues['Builder Heard'] = ",".join(builder_heard)
             cValues['Policy Choice'] = policy_choice if policy_choice else "N/A"
             cValues['Random Choice'] = random_choice if random_choice else "N/A"
+            cValues['Builder Attempts'] = attempts
+            cValues['Parse Failed'] = parse_failed
+            cValues['Rejected Reasons'] = ",".join(
+                r['reason'] + ("+cap" if r['hit_output_cap'] else "") for r in rejected) or "N/A"
             cValues['Failed Move']="N/A"
             cValues['Structure Placement']="N/A"
             cValues['Side Placement']="N/A"
@@ -914,6 +962,12 @@ def run_single_game(
     game_results['final_structure'] = copy.deepcopy(game_state.current_structure)
     game_results['final_spans']     = copy.deepcopy(game_state.current_spans)
     game_results['selection_summary'] = selection_counts
+    game_results['builder_parse_summary'] = parse_counts
+    if parse_counts['turns_with_retry'] or parse_counts['unparsed_after_retries']:
+        print(f"  [builder] parse retries this game: {parse_counts['retries_total']} over "
+              f"{parse_counts['turns_with_retry']} turn(s); still unparsed after retries: "
+              f"{parse_counts['unparsed_after_retries']}; rejected replies by reason: "
+              f"{parse_counts['rejected_by_reason']} ({parse_counts['rejected_hit_output_cap']} hit the output cap)")
 
     if game_state.progress_tracker.progress_history:
         last = game_state.progress_tracker.progress_history[-1]
@@ -956,6 +1010,16 @@ if __name__ == "__main__":
                         help="Number of oracle moves to show per turn")
     parser.add_argument("--no_tools",       action="store_true",
                         help="Disable builder tool use (simulate_move)")
+    parser.add_argument("--builder_parse_retries", type=int, default=2,
+                        help="Re-prompt the Builder for the PLACE/REMOVE/CLARIFY format up to N times "
+                             "when its reply can't be parsed, before the turn counts as a CLARIFY "
+                             "(same as the rollout harness). 0 = old behaviour.")
+    parser.add_argument("--builder_max_tokens", type=int, default=None,
+                        help="Output cap for the Builder's move call and its retries. Default: the "
+                             "rollout harness's values (400; 4096 for Claude). 250 = old full-game value.")
+    parser.add_argument("--builder_no_one_line_instruction", action="store_true",
+                        help="Leave 'Output EXACTLY ONE line...' out of the Builder's system prompt "
+                             "(the old full-game prompt). By default it is included, as in the rollout harness.")
     parser.add_argument("--structures",     type=str, default="0,1,2,3,4,5,6,7,8,9",
                         help="Comma-separated structure indices to run (e.g. '0,1,5'). Default: all")
     parser.add_argument("--quantize",       type=str, default=None,
@@ -994,6 +1058,10 @@ if __name__ == "__main__":
                         help="(--token_estimate) 'transformers' (default): Qwen2.5-14B loaded locally, "
                              "~30 GB GPU. 'ollama': the model in --estimate_model served by Ollama "
                              "(ollama_token_estimator.py next to this script).")
+    parser.add_argument("--estimate_model_path", type=str, default=None,
+                        help="(--token_estimate) Local folder (or Hugging Face id) for the estimator's "
+                             "Qwen2.5-14B-Instruct, instead of downloading it to the Hugging Face "
+                             "cache. With --estimate_backend ollama, used for the tokenizer only.")
     parser.add_argument("--estimate_model", type=str, default="qwen2.5:14b-instruct",
                         help="(--estimate_backend ollama) Ollama model that answers the calls.")
     parser.add_argument("--estimate_num_ctx", type=int, default=16384,
@@ -1064,8 +1132,17 @@ if __name__ == "__main__":
         except Exception as e:
             raise SystemExit(f"[estimate] Could not import token_estimator.py ({e}). "
                              f"Put it next to run_craft.py.")
+        if args.estimate_model_path:
+            # TokenEstimator reads token_estimator.MODEL when it is created, so
+            # pointing it at a local copy avoids the download entirely.
+            import token_estimator as _te
+            _te.MODEL = args.estimate_model_path
+            print(f"[estimate] estimator model/tokenizer from: {args.estimate_model_path}")
         if args.estimate_backend == "ollama":
             try:
+                import ollama_token_estimator as _ote
+                if args.estimate_model_path:
+                    _ote.TOKENIZER_MODEL = args.estimate_model_path
                 from ollama_token_estimator import OllamaTokenEstimator
             except Exception as e:
                 raise SystemExit(f"[estimate] Could not import ollama_token_estimator.py ({e}). "
@@ -1219,6 +1296,9 @@ if __name__ == "__main__":
                     policy_path=args.policy_path,
                     random_seed=args.random_seed,
                     token_estimator=EST,
+                    builder_parse_retries=args.builder_parse_retries,
+                    builder_max_tokens=args.builder_max_tokens,
+                    builder_one_line_instruction=not args.builder_no_one_line_instruction,
                 )
                 print(f"  Done [{director_model_name} | {condition}] structure={structure_index} "
                       f"games={len(results['games'])}")

@@ -95,6 +95,88 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_MODEL_PREFIXES = ("qwen", "llama", "mistral", "gemma", "deepseek", "phi")
 
 
+# ── Parse-failure retries ─────────────────────────────────────
+# Same rules as the rollout harness (run_multiTurn_builder_local.py): the move
+# line is pulled out of the reply wherever it is, and a reply that still can't
+# be parsed is re-prompted for the format up to `max_parse_retries` times before
+# it is treated as a CLARIFY. A real CLARIFY from the model is a valid answer
+# and is never retried.
+MOVE_PREFIXES = ("PLACE:", "REMOVE:", "CLARIFY:")
+# Clarifications produced by this code, not by the model.
+NON_MODEL_CLARIFY_PREFIXES = (
+    "Could not parse response", "Parse error", "Error in move generation",
+    "No response from API", "Builder produced no final text", "Builder loop did not execute",
+)
+# Added to the Builder's system prompt, word for word as in the rollout harness.
+ONE_LINE_INSTRUCTION = (
+    " Output EXACTLY ONE line and nothing else: no preamble, no markdown, "
+    "no code fences, no explanation after the line."
+)
+# For the tool-use path the model must still be free to call simulate_move, so
+# only its FINAL answer is held to one line.
+ONE_LINE_INSTRUCTION_TOOLS = (
+    " Your final answer must be EXACTLY ONE line and nothing else: no preamble, "
+    "no markdown, no code fences, no explanation after the line."
+)
+# Output cap for the plain Builder call and for retries, by provider; matches
+# the rollout harness (400 for local/OpenAI-style models, 4096 for Claude, whose
+# adaptive thinking shares the budget). The old full-game value was 250.
+DEFAULT_BUILDER_MAX_TOKENS = {"anthropic": 4096, "ollama": 400, "openai": 400}
+
+FORMAT_REMINDER = (
+    "That was not in the required format. Reply with ONE line only, "
+    "starting with PLACE:, REMOVE: or CLARIFY:, using exactly:\n"
+    "PLACE:block_code:position:layer:CONFIRM:interpretation\n"
+    "PLACE:block_code:position:layer:span_to:CONFIRM:interpretation\n"
+    "REMOVE:position:layer:CONFIRM:interpretation\n"
+    "REMOVE:position:layer:span_to:CONFIRM:interpretation\n"
+    "CLARIFY:your question\n"
+    "No other text."
+)
+
+
+def extract_move_line(text):
+    """The PLACE/REMOVE/CLARIFY line from a reply, wherever it appears
+    (skips preambles, markdown, bullets and code fences). None if there is none."""
+    if not text:
+        return None
+    cleaned = re.sub(r"```[a-zA-Z]*", "", text).replace("```", "")
+    for raw_line in cleaned.splitlines():
+        line = raw_line.strip().strip("[]").strip()
+        line = re.sub(r"^\*\*(.*?)\*\*$", r"\1", line).strip()
+        line = re.sub(r"^(?:[-*>]\s+|\d+[.)]\s+)", "", line)
+        line = line.strip("*").strip()
+        upper = line.upper()
+        for prefix in MOVE_PREFIXES:
+            if upper.startswith(prefix):
+                return prefix + line[len(prefix):]
+    match = re.search(r"\b(PLACE|REMOVE|CLARIFY):", cleaned, flags=re.IGNORECASE)
+    if match:
+        tail = cleaned[match.start():].splitlines()[0].strip().strip("[]").strip().rstrip("*")
+        return match.group(1).upper() + tail[len(match.group(1)):]
+    return None
+
+
+def reject_reason(raw, move) -> str:
+    """Why a reply was rejected: empty | no_move_line | parse_error | other."""
+    text = str((move or {}).get("clarification", ""))
+    if not raw or text.startswith(("No response from API", "Builder produced no final text",
+                                   "Builder loop did not execute")):
+        return "empty"
+    if text.startswith("Could not parse response"):
+        return "no_move_line"
+    if text.startswith("Parse error"):
+        return "parse_error"
+    return "other"
+
+
+def is_parse_failure(move) -> bool:
+    """True for a CLARIFY this code produced because the reply couldn't be used."""
+    if not isinstance(move, dict) or move.get("action") != "clarify":
+        return False
+    return str(move.get("clarification", "")).startswith(NON_MODEL_CLARIFY_PREFIXES)
+
+
 def builder_provider(model_name: str) -> str:
     """Which API serves this Builder model. Set BUILDER_PROVIDER to override."""
     forced = os.environ.get("BUILDER_PROVIDER")
@@ -116,6 +198,17 @@ class BuilderAgent:
         self.oracle_moves = oracle_moves
         self.provider = builder_provider(model_name)
         self._drop_temperature = False
+        # Parse-failure retries (run_craft.py sets this from --builder_parse_retries).
+        self.max_parse_retries = 2
+        # Output cap for the plain call and for retries (run_craft.py: --builder_max_tokens).
+        self.max_output_tokens = DEFAULT_BUILDER_MAX_TOKENS.get(self.provider, 400)
+        # "Output EXACTLY ONE line" in the system prompt (run_craft.py:
+        # --builder_no_one_line_instruction turns it off, for the old prompt).
+        self.one_line_instruction = True
+        self.last_attempts = 0          # model replies used for the last move (1 + retries)
+        self.last_raw_text = ""         # the last reply received
+        self.last_parse_failed = False  # still unparseable after all retries
+        self.last_rejected = []         # every rejected reply this move, with why
         if self.provider == "anthropic":
             # api_key from run_craft.py is the OpenAI key, so it is not used here.
             # Directors read CLAUDE_API_KEY; accept either name.
@@ -596,6 +689,61 @@ WORKFLOW:
                 oracle_moves=oracle_moves, builderPromptAddin = builderPromptAddin  
             )
 
+    def _parse_reply(self, raw):
+        """Move from a full model reply (the move line is extracted first)."""
+        if not raw:
+            return {"action": "clarify", "clarification": "No response from API"}
+        line = extract_move_line(raw)
+        if line is None:
+            return {"action": "clarify", "clarification": f"Could not parse response: {raw[:200]}"}
+        return self.parse_builder_response(line)
+
+    def _record_rejection(self, attempt, raw, move, finish_reason):
+        rec = {
+            "attempt": attempt,
+            "reason": reject_reason(raw, move),
+            # True when the reply stopped at the output cap: a reply cut off
+            # before its move line has nothing to parse.
+            "hit_output_cap": finish_reason in ("length", "max_tokens"),
+            "finish_reason": finish_reason,
+            "text": raw,
+        }
+        self.last_rejected.append(rec)
+        return rec
+
+    def _retry_unparsed(self, messages, raw, move, finish_reason=None, **create_kwargs):
+        """
+        Re-prompt for the format while `move` is a parse failure, up to
+        max_parse_retries times. `messages` is the conversation that produced
+        `raw`, WITHOUT that reply; each retry appends the reply and the format
+        reminder, so the model sees what it said and why it was rejected.
+        Every rejected reply is kept in self.last_rejected.
+        """
+        attempts = 1
+        while is_parse_failure(move):
+            rec = self._record_rejection(attempts, raw, move, finish_reason)
+            if attempts > self.max_parse_retries:
+                break
+            print(f"  [builder retry {attempts}/{self.max_parse_retries}] rejected reply "
+                  f"({rec['reason']}{', hit output cap' if rec['hit_output_cap'] else ''}): "
+                  f"{(raw or '')[:80]!r} -- re-prompting for format")
+            if raw:
+                messages.append({"role": "assistant", "content": raw})
+            messages.append({"role": "user", "content": FORMAT_REMINDER})
+            completion = self._create(model=self.model_name, messages=messages,
+                                      temperature=0.1, **create_kwargs)
+            choice = completion.choices[0] if completion and completion.choices else None
+            raw = (choice.message.content or "").strip() if choice else ""
+            finish_reason = getattr(choice, "finish_reason", None)
+            move = self._parse_reply(raw)
+            attempts += 1
+        self.last_attempts = attempts
+        self.last_raw_text = raw
+        self.last_parse_failed = is_parse_failure(move)
+        if self.last_parse_failed:
+            print(f"  [builder] still unparseable after {attempts - 1} retries; recording a CLARIFY")
+        return move
+
     def generate_move(self, director_discussion, current_state, available_blocks, oracle_moves=None, check_prompt_tokens = False) -> Dict:
         """Generate builder move with improved parsing"""
         try:
@@ -620,28 +768,33 @@ WORKFLOW:
             )
 
             system_content = system_content_oracle if oracle_moves else system_content_base
+            if self.one_line_instruction:
+                system_content += ONE_LINE_INSTRUCTION
             # "You are a Builder. Respond with exactly one line in the specified format. No additional text or explanation. OLD block, slight change. 
+            messages = [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": prompt}
+            ]
+            self.last_attempts, self.last_raw_text, self.last_parse_failed = 1, "", False
+            self.last_rejected = []
             completion = self._create(
                 model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_content},
-                    {"role": "user", "content": prompt}
-                ],
+                messages=list(messages),
                 temperature=0.1,  # Lower temperature for more consistent formatting
-                max_tokens=250    # Shorter to discourage extra text
+                max_tokens=self.max_output_tokens,
             )
-            
-            if completion and completion.choices:
-                response_text = completion.choices[0].message.content.strip()
-                
-                # Extract first line only (ignore any extra text)
-                first_line = response_text.split('\n')[0].strip()
-                
-                return self.parse_builder_response(first_line)
-            
-            return {"action": "clarify", "clarification": "No response from API"}
-            
+
+            choice = completion.choices[0] if completion and completion.choices else None
+            response_text = (choice.message.content or "").strip() if choice else ""
+            # The move line is found wherever it is in the reply (not just the
+            # first line), then unparseable replies are re-prompted.
+            move = self._parse_reply(response_text)
+            return self._retry_unparsed(messages, response_text, move,
+                                        finish_reason=getattr(choice, "finish_reason", None),
+                                        max_tokens=self.max_output_tokens)
+
         except Exception as e:
+            self.last_parse_failed = True
             return {"action": "clarify", "clarification": f"Error in move generation: {str(e)}"}
 
 
@@ -696,6 +849,7 @@ WORKFLOW:
             f"{max_simulations} times to dry-run moves. "
             "After simulations, output ONE final move in the PLACE/REMOVE/CLARIFY text format. "
             "No JSON, no extra commentary."
+            + (ONE_LINE_INSTRUCTION_TOOLS if self.one_line_instruction else "")
         )
     }
         user_msg = {
@@ -850,15 +1004,22 @@ WORKFLOW:
                 break
 
         print(f"  [TOOL] simulate called {tool_calls_used} times this turn")
+        self.last_attempts, self.last_raw_text, self.last_parse_failed = 1, "", False
+        self.last_rejected = []
         if choice is None:
+            self.last_parse_failed = True
             return {"action": "clarify", "clarification": "Builder loop did not execute."}
 
         final_text = (choice.message.content or "").strip()
-        if not final_text:
-            return {
-                "action": "clarify",
-                "clarification": "Builder produced no final text after tool calls."
-            }
-
-        first_line = final_text.split("\n")[0].strip()
-        return self.parse_builder_response(first_line)
+        if final_text:
+            move = self._parse_reply(final_text)
+        else:
+            move = {"action": "clarify",
+                    "clarification": "Builder produced no final text after tool calls."}
+        # Retries continue the same conversation (simulation results included),
+        # without tools, so the model can only answer in the text format.
+        if messages and messages[-1] is choice.message:
+            messages.pop()   # _retry_unparsed re-adds the reply as plain text
+        return self._retry_unparsed(messages, final_text, move,
+                                    finish_reason=getattr(choice, "finish_reason", None),
+                                    max_tokens=self.max_output_tokens)
