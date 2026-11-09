@@ -5,7 +5,7 @@ import random
 import re
 import os
 from typing import Dict, List, Optional, Any, Tuple
-from openai import OpenAI
+from openai import OpenAI, BadRequestError
 from datetime import datetime
 from task_progress_tracker import TaskProgressTracker
 from structure_generator_v2 import (
@@ -82,13 +82,74 @@ Before deciding on a move, consider the following and make inferences based on c
 ''',
 }
 
+# ── Builder model providers ───────────────────────────────────
+# All three go through the OpenAI SDK, so the prompt, tool-calling and parsing
+# code below is unchanged:
+#   openai    -- gpt-* etc. (default)
+#   anthropic -- claude-*, via Anthropic's OpenAI-compatible endpoint
+#                (needs CLAUDE_API_KEY or ANTHROPIC_API_KEY)
+#   ollama    -- local models such as qwen2.5:7b-instruct, via Ollama's
+#                OpenAI-compatible endpoint (OLLAMA_BASE_URL to override)
+ANTHROPIC_OPENAI_BASE_URL = "https://api.anthropic.com/v1/"
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_MODEL_PREFIXES = ("qwen", "llama", "mistral", "gemma", "deepseek", "phi")
+
+
+def builder_provider(model_name: str) -> str:
+    """Which API serves this Builder model. Set BUILDER_PROVIDER to override."""
+    forced = os.environ.get("BUILDER_PROVIDER")
+    if forced:
+        return forced
+    m = (model_name or "").lower()
+    if m.startswith("claude"):
+        return "anthropic"
+    if m.startswith(OLLAMA_MODEL_PREFIXES) or ":" in m:
+        return "ollama"
+    return "openai"
+
+
 class BuilderAgent:
-    """Builder agent that uses API calls"""
+    """Builder agent that uses API calls (OpenAI, Anthropic or Ollama)"""
     
     def __init__(self, api_key=None, model_name="gpt-4o-mini", oracle_moves=None):
-        self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
         self.model_name = model_name
         self.oracle_moves = oracle_moves
+        self.provider = builder_provider(model_name)
+        self._drop_temperature = False
+        if self.provider == "anthropic":
+            # api_key from run_craft.py is the OpenAI key, so it is not used here.
+            # Directors read CLAUDE_API_KEY; accept either name.
+            key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+            if not key:
+                raise ValueError(f"Builder '{model_name}' needs CLAUDE_API_KEY or ANTHROPIC_API_KEY (e.g. in .env).")
+            self.client = OpenAI(api_key=key, base_url=ANTHROPIC_OPENAI_BASE_URL)
+        elif self.provider == "ollama":
+            self.client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
+        else:
+            self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
+        print(f"[builder] {model_name} via {self.provider}")
+
+    def _create(self, **kwargs):
+        """
+        chat.completions.create with provider quirks handled:
+          * Claude requires max_tokens; calls that don't set one get 1024.
+          * Newer Claude models reject a non-default temperature. On that
+            error, temperature is dropped for the rest of the run (logged).
+        """
+        if self.provider == "anthropic":
+            kwargs.setdefault("max_tokens", 1024)
+        if self._drop_temperature:
+            kwargs.pop("temperature", None)
+        try:
+            return self.client.chat.completions.create(**kwargs)
+        except BadRequestError as e:
+            if "temperature" in kwargs and "temperature" in str(e).lower():
+                self._drop_temperature = True
+                print(f"[builder] {self.model_name} rejected temperature; "
+                      f"using the model default from now on ({str(e)[:120]})")
+                kwargs.pop("temperature")
+                return self.client.chat.completions.create(**kwargs)
+            raise
 
     def format_oracle_moves_for_prompt(self, moves):
         """
@@ -560,7 +621,7 @@ WORKFLOW:
 
             system_content = system_content_oracle if oracle_moves else system_content_base
             # "You are a Builder. Respond with exactly one line in the specified format. No additional text or explanation. OLD block, slight change. 
-            completion = self.client.chat.completions.create(
+            completion = self._create(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": system_content},
@@ -691,7 +752,7 @@ WORKFLOW:
 
 
         while tool_calls_used < max_simulations:
-            response = self.client.chat.completions.create(
+            response = self._create(
                 model=self.model_name,
                 messages=messages,
                 tools=tools,
@@ -720,7 +781,7 @@ WORKFLOW:
                         "Output your FINAL move now in PLACE/REMOVE/CLARIFY text format."
                     )
                 })
-                response = self.client.chat.completions.create(
+                response = self._create(
                     model=self.model_name,
                     messages=messages,
                     temperature=0.1,
@@ -779,7 +840,7 @@ WORKFLOW:
                         "Do NOT call simulate_move again."
                     )
                 })
-                response = self.client.chat.completions.create(
+                response = self._create(
                     model=self.model_name,
                     messages=messages,
                     temperature=0.1,

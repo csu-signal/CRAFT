@@ -269,7 +269,8 @@ class EnhancedGameState:
 
     def __init__(self, target_structure, target_spans=None, available_blocks=None, strict_target=False, invisible_cells=None, partComplete = False, partType= None, current_structure= None):
         # self.current_structure = {f"({i}, {j})": [] for i in range(3) for j in range(3)} #remove space
-        self.current_structure = {f"({i},{j})": [] for i in range(3) for j in range(3)} if current_structure != None else current_structure
+        self.current_structure = {f"({i},{j})": [] for i in range(3) for j in range(3)}
+        # if current_structure != None else current_structure
         self.target_structure = target_structure
         self.partType = EnhancedGameState.PARTIAL_OPTIONS[random.randint(0, 5)] if partType == None else partType
         if(partComplete):
@@ -298,7 +299,7 @@ class EnhancedGameState:
                      self.current_structure["(0,2)"] = self.target_structure["(0,2)"]
                      self.current_structure["(1,2)"] = self.target_structure["(1,2)"]
                      self.current_structure["(2,2)"] = self.target_structure["(2,2)"]
-
+                     
         # structure = {f"({i}, {j})": [] for i in range(3) for j in range(3)}  # With spaces
         self.target_spans = target_spans or {}
         self.strict_target = strict_target

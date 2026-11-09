@@ -1,4 +1,3 @@
-
 import copy
 import json
 import random
@@ -25,6 +24,12 @@ try:
 except ImportError:
     HF_AVAILABLE = False
   
+
+# Local models served by Ollama's OpenAI-compatible endpoint (e.g. qwen2.5:7b-instruct).
+# Same routing rule as the Builder (agents/builder_agent.py).
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_MODEL_PREFIXES = ("qwen", "llama", "mistral", "gemma", "deepseek", "phi")
+
 
 class DirectorAgent:
     """Director agent that supports both API and local models"""
@@ -96,6 +101,10 @@ class DirectorAgent:
                     api_key=os.getenv("GEMINI_API_KEY"),
                     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
                 )
+            elif self.provider == "ollama":
+                # Uses _generate_with_openai unchanged (same system prompt,
+                # temperature 0.7, max_tokens) against the local Ollama server.
+                self.client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
             else:
                 self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
             self.local_model = None
@@ -111,11 +120,16 @@ class DirectorAgent:
         #     self.local_tokenizer = local_tokenizer
 
     def _get_provider(self, model_name: str) -> str:
+        forced = os.environ.get("DIRECTOR_PROVIDER")
+        if forced:
+            return forced
         name = model_name.lower()
         if "claude" in name:
             return "anthropic"
         elif "gemini" in name:
             return "gemini"
+        elif name.startswith(OLLAMA_MODEL_PREFIXES) or ":" in name:
+            return "ollama"
         else:
             return "openai"
 
@@ -644,7 +658,10 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
             system=f"You are Director {self.director_id} in a collaborative LEGO construction task.",
             messages=[{"role": "user", "content": prompt}],
         )
-        response = message.content[0].text
+        response = ""
+        for block in message.content:
+            if block.type == "text":
+                response += block.text
         
         # check actual usage from API response metadata
         print(f"  [CLAUDE USAGE] input_tokens: {message.usage.input_tokens}")

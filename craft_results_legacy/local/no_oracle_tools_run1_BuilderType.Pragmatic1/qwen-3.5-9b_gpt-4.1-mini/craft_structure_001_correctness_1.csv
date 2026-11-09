@@ -1,0 +1,1461 @@
+Transcript,Turn,Failed Move,Clarify,Structure Placement,Side Placement,Overall Structure State,Group Agreement,Transcription
+0,1,False,N/A,True,True,True,yes,"D1: 1.  **Analyze D1's Target View (Bottom Layer - row_0):**
+        -   (0,0): Yellow, size 1
+        -   (0,1): Blue, size 1
+        -   (0,2): Blue, size 1
+        -   *Note:* The prompt says ""row_0"" in the JSON refers to the bottom layer.
+    
+    2.  **Analyze Current Board State:**
+        -   All cells are empty (""none"").
+    
+    3.  **Compare Target vs. Current:**
+        -   I need a yellow block at my bottom left (0,0).
+        -   I need a blue block at my bottom middle (0,1).
+        -   I need a blue block at my bottom right (0,2).
+        -   Currently, nothing is there.
+    
+    4.  **Check Other Directors:**
+        -   D2's target: Blue at (0,0), Yellow large at (0,1)-(0,2).
+        -   D3's target: Green large at (0,0)-(0,1), Blue at (0,2).
+        -   *Conflict Check:*
+            -   Cell (0,0): D1 wants Yellow. D2 wants Blue. D3 wants Green.
+            -   Cell (0,1): D1 wants Blue. D2 wants Yellow (large). D3 wants Green (large).
+            -   Cell (0,2): D1 wants Blue. D2 wants Yellow (large). D3 wants Blue.
+        -   *Wait, this is a collaborative task.* Usually, in these tasks, the views are consistent or the builder builds a structure that satisfies *all* views simultaneously (like a 3D puzzle).
+        -   Let's re-read the prompt's ""Current Board State"". It is completely empty.
+        -   Let's re-read the ""Target Views"" provided in the prompt.
+            -   D1: Yellow, Blue, Blue.
+            -   D2: Blue, Yellow(2), Yellow(2).
+            -   D3: Green(2), Green(2), Blue.
+        -
+D2: 1.  **Analyze Current Board State:**
+        -   The board is completely empty. All cells in D1, D2, and D3 views are ""none"".
+    
+    2.  **Analyze My Target View (D2):**
+        -   **Layer 0 (Bottom):**
+            -   (0,0): Orange, size 1
+            -   (0,1): Green, size 1
+            -   (0,2): Yellow, size 1
+        -   **Layer 1 (Middle):**
+            -   (0,0): Red, size 1
+            -   (0,1): Orange, size 1
+            -   (0,2): Orange, size 1
+        -   **Layer 2 (Top):**
+            -   (0,0): Blue, size 1
+            -   (0,1): Blue, size 1
+            -   (0,2): Green, size 1
+    
+    3.  **Compare Target vs. Current:**
+        -   Everything is missing.
+        -   I need to start building from the bottom up.
+        -   My unique view is the ""back wall"" (from the builder's perspective, D2 is across).
+        -   From my perspective (D2), looking at the board:
+            -   My ""bottom left"" is (0,0).
+            -   My ""bottom middle"" is (0,1).
+            -   My ""bottom right"" is (0,2).
+            -   My ""top left"" is (2,0).
+            -   My ""top middle"" is (2,1).
+            -   My ""top right"" is (2,2).
+            -   Wait, the prompt says: ""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+            -   And ""row_0 = layer_0 (bottom layer)"".
+            -   So my view is a 3x3 grid.
+            -   (0,0) is bottom-left of my view.
+            -   (0,1) is bottom-middle of my"
+1,2,False,N/A,True,True,True,yes,"D3: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1},"
+2,3,False,N/A,False,False,False,yes,"D1: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1},
+D2: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1},"
+3,4,False,N/A,False,False,False,yes,"D1: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1},
+D2: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1},"
+4,5,False,N/A,True,True,False,yes,"D1: The builder just placed a small green block at (0,1) layer 1.
+From my perspective (D1), I am looking at the left wall.
+My target view for row_0 (bottom layer) is: Yellow, Blue, Blue.
+My target view for row_1 (middle layer) is: Orange, Orange, Green.
+My target view for row_2 (top layer) is: Green, Red, Red.
+
+Current board state:
+Layer 0: (0,0) Yellow, (0,1) Green, (0,2) Empty.
+Layer 1: (0,0) Orange, (0,1) Green, (0,2) Empty.
+Layer 2: All Empty.
+
+Wait, let's re-verify the board state based on the conversation history.
+1. Builder placed small yellow block at (0,0) layer 0.
+2. Builder placed small green block at (0,1) layer 0.
+3. Builder placed small orange block at (0,0) layer 1.
+4. Builder placed small green block at (0,1) layer 1.
+
+So currently:
+Layer 0: (0,0) Yellow, (0,1) Green, (0,2) Empty.
+Layer 1: (0,0) Orange, (0,1) Green, (0,2) Empty.
+Layer 2: All Empty.
+
+My target view (D1):
+Layer 0: Yellow, Blue, Blue.
+Layer 1: Orange, Orange, Green.
+Layer 2: Green, Red, Red.
+
+Comparison:
+Layer 0:
+- (0,0): Yellow (Matches target)
+- (0,1): Green (Target is Blue) -> Mismatch
+- (0,2): Empty (Target is Blue) -> Missing
+
+Layer 1:
+- (0,0): Orange (Matches target)
+- (0,1): Green (Target is Orange) -> Mismatch
+- (0,2): Empty (Target is Green) -> Missing
+
+Layer 2:
+- All Empty (Target: Green, Red, Red) -> Missing
+
+Wait, the builder placed a green block at (0,1) layer 0. My target says Blue there.
+The builder
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Empty. **Missing.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Empty. **Missing.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Empty (at 0,2).
+    - D1 wants Blue at (0,1). I (D3) want Green at (0,1).
+    - Wait, the prompt says """
+5,6,False,N/A,True,True,False,yes,"D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Empty. **Missing.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1 wants Blue at (0,1). I (D3) want Green
+D1: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Empty. **Missing.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1 wants Blue at (0,1). I (D3) want Green
+D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Empty. **Missing.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1 wants Blue at (0,1). I (D3) want Green"
+6,7,False,N/A,True,True,False,yes,"D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1
+D1: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1"
+7,8,False,N/A,False,False,False,yes,"D1: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1
+D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1"
+8,9,False,N/A,True,True,False,yes,"D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Blue (bs)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Blue. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1
+D1: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Blue (bs)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Blue. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1"
+9,10,False,N/A,False,False,False,yes,"D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Blue (bs)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Blue. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1
+D1: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Blue (bs)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Blue. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1"
+10,11,True,N/A,N/A,N/A,N/A,N/A,"D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Blue (bs)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Blue. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1
+D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Blue (bs)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Blue. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1"
+11,12,False,N/A,False,False,False,yes,"D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Blue (bs)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Blue. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1
+D1: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Yellow (ys)
+- (0,0) Layer 1: Blue (bs)
+- (0,1) Layer 0: Green (gs)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Yellow. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Blue. **Mismatch.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Yellow (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1"
+12,13,False,N/A,True,True,False,yes,"D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Empty. **Missing.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - All Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow, Blue, Blue.
+    - Current Layer 0: Orange (at 0,0), Green (at 0,1), Orange (at 0,2).
+    - D1 wants Yellow at (0,0). I (D3) want Orange"
+13,14,False,N/A,False,False,False,yes,"D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Empty. **Missing.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Empty. **Missing.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow
+D1: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Empty. **Missing.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Empty. **Missing.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Empty. **Missing.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Empty. **Missing.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow"
+14,15,N/A,True,N/A,N/A,N/A,N/A,"D1: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""orange"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""red"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""blue"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""red"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""blue"", ""size"": 1},
+D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Empty. **Missing.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow"
+15,16,False,N/A,False,False,False,no,"D1: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Empty. **Missing.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Empty. **Missing.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1's Target View (from prompt):
+    - Layer 0: Yellow"
+16,17,N/A,True,N/A,N/A,N/A,N/A,"D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- (0,0) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Blue. **Match.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1
+D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- (0,0) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Blue. **Match.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1"
+17,18,False,N/A,False,False,False,yes,"D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- (0,0) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Blue. **Match.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- (0,0) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Blue. **Match.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1
+D1: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- (0,0) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Blue. **Match.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue. Current Empty. **Missing.**
+
+**Conflict Check:**
+- D1"
+18,19,False,N/A,False,False,False,yes,"D2: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine my next instruction.
+
+**Current Board State:**
+- (0,0) Layer 0: Orange (os)
+- (0,1) Layer 0: Green (gs)
+- (0,2) Layer 0: Orange (os)
+- (0,1) Layer 1: Green (gs)
+- (0,2) Layer 1: Red (rs)
+- (0,1) Layer 2: Blue (bs)
+- (0,0) Layer 2: Blue (bs)
+- (0,2) Layer 2: Blue (bs)
+- All other cells are empty.
+
+**My Target View (D3):**
+- **Layer 0 (Bottom):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Orange, size 1
+- **Layer 1 (Middle):**
+    - (0,0): Orange, size 1
+    - (0,1): Green, size 1
+    - (0,2): Red, size 1
+- **Layer 2 (Top):**
+    - (0,0): Blue, size 1
+    - (0,1): Blue, size 1
+    - (0,2): Blue, size 1
+
+**Comparison:**
+- **Layer 0:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Orange. Current Orange. **Match.**
+- **Layer 1:**
+    - (0,0): Target Orange. Current Orange. **Match.**
+    - (0,1): Target Green. Current Green. **Match.**
+    - (0,2): Target Red. Current Red. **Match.**
+- **Layer 2:**
+    - (0,0): Target Blue. Current Blue. **Match.**
+    - (0,1): Target Blue. Current Blue. **Match.**
+    - (0,2): Target Blue.
+D1: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""orange"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""red"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""blue"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""red"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""blue"", ""size"": 1},"
+19,20,N/A,True,N/A,N/A,N/A,N/A,"D1: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""orange"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""red"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""blue"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""red"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""blue"", ""size"": 1},
+D3: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""orange"", ""size"": 1}], ""row_1"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""red"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""blue"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""orange"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""red"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""blue"", ""size"": 1},"
