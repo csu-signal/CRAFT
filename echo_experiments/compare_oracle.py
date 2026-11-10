@@ -148,16 +148,16 @@ def paired_bar(res, conditions, metric, ax=None):
             ax.errorbar(x, v * scale, yerr=0 if pd.isna(e) else e * scale, color=INK, capsize=2.5, lw=0.9)
             ax.text(x, v * scale + (0 if pd.isna(e) else e * scale), _value_text(metric, v),
                     ha="center", va="bottom", fontsize=7.5, color=INK)
-        if _sig(r, "delta"):
-            scale = 100 if metric.percent else 1
-            top = max(r[f"mean_{s}"] + np.nan_to_num(r[f"sem_{s}"]) for s in SETTINGS) * scale
-            ax.text(i, top + 0.08 * (100 if metric.percent else top), "†", ha="center", fontsize=10, color=INK)
-    ax.set_xticks(range(len(conditions)), [c.method.display for c in conditions], fontsize=9)
+    ax.set_xticks(range(len(conditions)), [_tick(c) for c in conditions], fontsize=9)
     ax.set_ylabel(_y_label(metric))
     if metric.bounds and metric.percent:
         ax.set_ylim(0, 112)
         ax.set_yticks(range(0, 101, 20))
     return fig
+
+
+def _tick(c):
+    return c.model.removeprefix("Claude ").replace(" ", "\n", 1) if c.method.key == "api" and c.model else c.method.display
 
 
 def _setting_legend(fig, conditions):
@@ -186,7 +186,7 @@ def progress_curves(dfs, conditions):
         ax.set_ylim(bottom=0)
         ax.grid(axis="both")
     axes[0].set_ylabel("Cumulative progress (%) ↑")
-    axes[0].legend(loc="upper left", fontsize=8)
+    axes[1].legend(loc="upper right", fontsize=8)
     return fig
 
 
