@@ -166,7 +166,7 @@ def run(
     seed=42,
     train_pool_path=None,
     log_every_episodes=5,
-    report_to="wandb",
+    report_to="none",
     run_name=None,
 ):
     print(f"[baseline-tools] builder_model={builder_model!r} max_simulations={max_simulations}")
@@ -266,7 +266,7 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train_pool", type=str, default=None)
     parser.add_argument("--log_every_episodes", type=int, default=5)
-    parser.add_argument("--report_to", type=str, default="wandb", choices=["none", "wandb"])
+    parser.add_argument("--report_to", type=str, default="none", choices=["none", "wandb"])
     parser.add_argument("--run_name", type=str, default=None)
     args = parser.parse_args()
 

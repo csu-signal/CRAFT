@@ -638,11 +638,16 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
     #     return message.content[0].text
 
     def _generate_with_anthropic(self, prompt) -> str:
+        kwargs = {}
+        # Haiku 5.5 thinks by default, which eats into max_tokens; keep it non-reasoning like the other directors.
+        if self.model_name.startswith("claude-haiku-5"):
+            kwargs["thinking"] = {"type": "disabled"}
         message = self.client.messages.create(
             model=self.model_name,
             max_tokens=self.max_tokens,
             system=f"You are Director {self.director_id} in a collaborative LEGO construction task.",
             messages=[{"role": "user", "content": prompt}],
+            **kwargs,
         )
         # response = message.content[0].text
         response = ""
