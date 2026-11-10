@@ -2,3 +2,10 @@
 
 Condition: policy
 
+
+## structure_004
+- Condition: policy
+- Turns: 20
+- Progress: 0.000
+- Completed: False
+- Selection: {"turns_selected": 20, "policy_picks": {"D1": 7, "D2": 8, "D3": 5}, "random_picks": {"D1": 6, "D2": 9, "D3": 5}, "policy_equals_random": 13, "policy_argmax_was_silent": 2, "builder_heard_single_director": 20, "no_director_spoke": 0}
