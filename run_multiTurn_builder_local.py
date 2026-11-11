@@ -1151,6 +1151,15 @@ def execute_step(
 # Index policy (follow-on selection by the trained ArmStateEvaluator)
 # --------------------------------------------------------------------------- #
 POLICY_MODULES = ("config", "arm_state", "features", "models")
+# Imported too when present: its load_exported_policy is the project's own
+# loader for self-describing exports (arch + feature_layout blocks).
+OPTIONAL_POLICY_MODULES = ("pipeline_cache",)
+# Feature settings recorded in an export's feature_layout that are read from the
+# environment when config.py is imported. They are set from the checkpoint
+# before that import, so one config.py serves pooled/unpooled and any
+# FEATURE_MODE/FEATURE_TIER without hand edits. (USE_POOLED_HISTORY only takes
+# effect if config.py reads it from the environment; see the error below.)
+LAYOUT_ENV_KEYS = ("FEATURE_MODE", "FEATURE_TIER", "USE_POOLED_HISTORY")
 
 
 def find_policy_code_dir(policy_path: Path, given: Optional[Path]) -> Path:
@@ -1177,42 +1186,77 @@ class PolicyScorer:
 
     def __init__(self, policy_path: Path, code_dir: Path, feature_mode: Optional[str] = None,
                  feature_tier: Optional[str] = None, allow_silent: bool = False):
+        import torch
+        self.torch = torch
+
+        # 1) Read the checkpoint first. Exports are plain dicts and tensors, so
+        #    no project module is needed yet; their feature_layout says which
+        #    settings config.py must be imported with.
+        try:
+            ckpt = torch.load(str(policy_path), map_location="cpu", weights_only=False)
+        except Exception:  # noqa: BLE001  -- pickles project objects: load after the imports
+            ckpt = None
+        layout = ckpt.get("feature_layout") if isinstance(ckpt, dict) else None
+        self.feature_layout = layout if isinstance(layout, dict) else None
+        if self.feature_layout:
+            for key in LAYOUT_ENV_KEYS:
+                if key in self.feature_layout:
+                    val = self.feature_layout[key]
+                    os.environ[key] = ("1" if val else "0") if isinstance(val, bool) else str(val)
+        # Explicit overrides still win (and the layout check below will refuse
+        # a combination the checkpoint wasn't trained with).
         if feature_mode:
             os.environ["FEATURE_MODE"] = feature_mode
         if feature_tier:
             os.environ["FEATURE_TIER"] = feature_tier
-        import torch
-        self.torch = torch
 
+        # 2) Import the policy project's modules and build the model while they
+        #    are registered, so models.py / pipeline_cache.py see THIS project's
+        #    config even if CRAFT has its own module of the same name.
         code_dir_s = str(code_dir)
-        saved = {n: sys.modules.pop(n) for n in POLICY_MODULES if n in sys.modules}
+        names = POLICY_MODULES + OPTIONAL_POLICY_MODULES
+        saved = {n: sys.modules.pop(n) for n in names if n in sys.modules}
         sys.path.insert(0, code_dir_s)
         try:
             mods = {n: importlib.import_module(n) for n in POLICY_MODULES}
+            for n in OPTIONAL_POLICY_MODULES:
+                try:
+                    mods[n] = importlib.import_module(n)
+                except ImportError:
+                    mods[n] = None
             for n, m in mods.items():
+                if m is None:
+                    continue
                 f = str(Path(getattr(m, "__file__", "")).resolve())
                 if not f.startswith(code_dir_s):
                     sys.exit(f"[policy] module '{n}' was imported from {f}, not {code_dir_s}.")
-            # Load while the policy modules are registered, in case the
-            # checkpoint pickles objects from them.
-            ckpt = torch.load(str(policy_path), map_location="cpu", weights_only=False)
+            if ckpt is None:
+                ckpt = torch.load(str(policy_path), map_location="cpu", weights_only=False)
+
+            self.cfg = mods["config"]
+            self.features = mods["features"]
+            self.models = mods["models"]
+            self.arm_mod = mods["arm_state"]
+            self.model, self.sat_mean, self.sat_std, self.loader = \
+                self._load_policy(ckpt, policy_path, mods.get("pipeline_cache"))
         finally:
             sys.path.remove(code_dir_s)
             for n in saved:
                 sys.modules[n] = saved[n]
 
-        self.cfg = mods["config"]
-        self.features = mods["features"]
-        self.models = mods["models"]
-        self.arm_mod = mods["arm_state"]
         self.allow_silent = allow_silent
-        self.model, self.sat_mean, self.sat_std = self._build_model(ckpt)
+        self.arch = dict(ckpt.get("arch") or {}) if isinstance(ckpt, dict) else {}
         self.model.to(self.cfg.device).eval()
 
-        print(f"[policy] loaded {policy_path.name} | FEATURE_MODE={self.cfg.FEATURE_MODE} "
+        heads = (f"recov_head={self.model.recov_head is not None}"
+                 + (f" recov_weight={self.model.recov_weight:g}" if self.model.recov_head is not None else "")
+                 + f" outcome_head={self.model.outcome_head is not None}"
+                 + (f" outcome_weight={self.model.outcome_weight:g}" if self.model.outcome_head is not None else "")
+                 ) if hasattr(self.model, "recov_head") else "heads=n/a"
+        print(f"[policy] loaded {policy_path.name} via {self.loader} | FEATURE_MODE={self.cfg.FEATURE_MODE} "
               f"FEATURE_TIER={self.cfg.FEATURE_TIER} D={self.cfg.D} "
               f"pooled={self.cfg.USE_POOLED_HISTORY} attention={self.cfg.USE_ATTENTION} "
-              f"sat_mean={self.sat_mean:.4f} sat_std={self.sat_std:.4f}")
+              f"{heads} sat_mean={self.sat_mean:.4f} sat_std={self.sat_std:.4f}")
         if self.cfg.FEATURE_MODE != "embeddings_only":
             print("[policy] NOTE: numeric features are active. Two inputs can only be approximated "
                   "here: historical 'which director did the Builder follow' tags (not in CRAFT, "
@@ -1220,6 +1264,52 @@ class PolicyScorer:
                   "the before-move board is used). Check the divergence-reproduction rate.")
 
     # -- loading ------------------------------------------------------------
+    def _load_policy(self, ckpt, policy_path, pipeline_cache):
+        """
+        Build the model from the checkpoint's own description whenever it has
+        one, so plain, recoverability-head (MM6) and outcome-head exports all
+        load with one code path and strict weight loading:
+          1. pipeline_cache.load_exported_policy -- the project's own loader
+             (builds ArmStateEvaluator(**arch), strict load, layout check);
+          2. the same construction done here, if pipeline_cache isn't there;
+          3. the older heuristic path, for checkpoints without an arch block.
+        The decision score is models.py's default forward, which already adds
+        recov_weight * recov (and outcome_weight * outcome) for heads present.
+        """
+        is_export = isinstance(ckpt, dict) and "arch" in ckpt and "model_state" in ckpt
+        if is_export and pipeline_cache is not None and "feature_layout" in ckpt:
+            try:
+                model, payload = pipeline_cache.load_exported_policy(str(policy_path))
+            except ValueError as e:   # strict feature-layout check
+                hint = ""
+                lay = ckpt["feature_layout"]
+                if lay.get("USE_POOLED_HISTORY") != getattr(self.cfg, "USE_POOLED_HISTORY", None):
+                    hint = (f" The checkpoint has USE_POOLED_HISTORY={lay.get('USE_POOLED_HISTORY')} but "
+                            f"config.py produced {getattr(self.cfg, 'USE_POOLED_HISTORY', None)}: make config.py "
+                            f"read it from the environment, e.g. USE_POOLED_HISTORY = "
+                            f"os.environ.get('USE_POOLED_HISTORY', '0') == '1'. This loader sets that "
+                            f"variable from the checkpoint automatically.")
+                sys.exit(f"[policy] {e}{hint}")
+            self._check_heads(model, ckpt["arch"])
+            return model, *self._sat_stats(payload), "pipeline_cache.load_exported_policy"
+
+        if is_export:
+            model = self.models.ArmStateEvaluator(**ckpt["arch"])
+            model.load_state_dict(ckpt["model_state"])           # strict
+            self._check_heads(model, ckpt["arch"])
+            return model, *self._sat_stats(ckpt), "arch block"
+
+        model, mean, std = self._build_model(ckpt)
+        return model, mean, std, "legacy (no arch block)"
+
+    @staticmethod
+    def _check_heads(model, arch):
+        """Every head the export declares must exist on the loaded model."""
+        for head in ("recov_head", "outcome_head"):
+            if arch.get(head) and getattr(model, head, None) is None:
+                sys.exit(f"[policy] checkpoint declares {head}=True but the loaded model has none; "
+                         f"models.py is too old for this checkpoint.")
+
     def _build_model(self, ckpt):
         torch = self.torch
         nn = torch.nn
@@ -1246,6 +1336,13 @@ class PolicyScorer:
             sys.exit(f"[policy] No state dict found in checkpoint. Top-level keys: {sorted(ckpt.keys())}")
 
         self._warn_config_mismatch(ckpt)
+
+        heads = sorted({k.split(".")[0] for k in state if k.startswith(("recov_head.", "outcome_head."))})
+        if heads:
+            # Without an arch block the head's score weight is unknown, and
+            # loading non-strictly would silently drop the head: refuse.
+            sys.exit(f"[policy] checkpoint has {heads} weights but no 'arch' block giving their score "
+                     f"weights. Re-export it with pipeline_cache.export_policy.")
 
         first_w = next((v for v in state.values() if getattr(v, "ndim", 0) == 2), None)
         if first_w is not None and not self.cfg.USE_ATTENTION and first_w.shape[1] != self.cfg.D:

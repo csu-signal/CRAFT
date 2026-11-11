@@ -368,6 +368,8 @@ def run_craft_experiments(
         'policy_path'    : str(policy_path) if policy_path else None,
         'policy_feature_mode': policy_scorer.cfg.FEATURE_MODE if policy_scorer else None,
         'policy_feature_tier': policy_scorer.cfg.FEATURE_TIER if policy_scorer else None,
+        'policy_loader': getattr(policy_scorer, 'loader', None) if policy_scorer else None,
+        'policy_arch': getattr(policy_scorer, 'arch', None) if policy_scorer else None,   # incl. recov_head / recov_weight
         'random_seed'    : random_seed,
         'builder_parse_retries': builder_parse_retries,
         'builder_max_tokens': builder_max_tokens,       # None = provider default (see BuilderAgent)
