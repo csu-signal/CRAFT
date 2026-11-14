@@ -1,0 +1,80 @@
+{
+  "note": "source=api: counts reported by the provider; source=estimate: the local estimator's raw counts, with *_corrected scaled by token_estimator.CORRECTION; source=local_tokenizer: counted with the local director's tokenizer.",
+  "sample": {
+    "director_models": [
+      "claude-haiku-4-5"
+    ],
+    "builder": "claude-haiku-4-5",
+    "conditions": [
+      "policy"
+    ],
+    "structures": [
+      0
+    ],
+    "max_turns": 20,
+    "token_estimate": false
+  },
+  "totals": {
+    "calls": 80,
+    "errors": 0,
+    "calls_without_usage": 0,
+    "input_tokens": 387884,
+    "output_tokens": 42800,
+    "cache_read_input_tokens": 0,
+    "cache_creation_input_tokens": 0
+  },
+  "by_role": {
+    "director": {
+      "calls": 60,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 327613,
+      "output_tokens": 40789,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 0
+    },
+    "builder": {
+      "calls": 20,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 60271,
+      "output_tokens": 2011
+    }
+  },
+  "by_director_model_condition_role": {
+    "claude-haiku-4-5 | policy | director": {
+      "calls": 60,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 327613,
+      "output_tokens": 40789,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 0
+    },
+    "claude-haiku-4-5 | policy | builder": {
+      "calls": 20,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 60271,
+      "output_tokens": 2011
+    }
+  },
+  "by_role_model_source": {
+    "director | claude-haiku-4-5 | api": {
+      "calls": 60,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 327613,
+      "output_tokens": 40789,
+      "cache_read_input_tokens": 0,
+      "cache_creation_input_tokens": 0
+    },
+    "builder | claude-haiku-4-5 | api": {
+      "calls": 20,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 60271,
+      "output_tokens": 2011
+    }
+  }
+}

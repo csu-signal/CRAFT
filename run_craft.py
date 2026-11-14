@@ -277,6 +277,223 @@ def summarize_estimate(est) -> Dict:
             "by_director_model_condition_role": dict(sorted(by_group.items()))}
 
 
+# ─────────────────────────────────────────
+# TOKEN USAGE (every run, real or --token_estimate)
+# ─────────────────────────────────────────
+#
+# Every model call made by a director or the builder is recorded with its input
+# and output tokens, as reported by the response itself:
+#   OpenAI / Ollama / Gemini-OpenAI  usage.prompt_tokens, usage.completion_tokens
+#   Anthropic                        usage.input_tokens, usage.output_tokens (+ cache)
+#   google-genai                     usage_metadata.prompt_token_count, candidates_token_count
+# Each agent's client is wrapped in a UsageRecordingClient, so the agents'
+# own call code is unchanged. In --token_estimate runs the wrapped client is
+# the EstimatorClient, whose responses carry the local model's counts; those
+# records are marked source="estimate" and also get CORRECTION-scaled values,
+# the same numbers token_estimate.json reports. Local transformers directors
+# (--mode local) have no client; their tokens are counted with their own
+# tokenizer (source="local_tokenizer", prompt text without chat-template overhead).
+#
+# Saved: per turn (turn_data['token_usage']: every call + totals), per game
+# (game_results['token_usage']), as CSV columns, and for the whole run in
+# token_usage.json.
+
+_USAGE_STYLES = {("chat", "completions", "create"): "openai",
+                 ("messages", "create"): "anthropic",
+                 ("models", "generate_content"): "gemini"}
+
+
+class TokenLedger:
+    """All recorded model calls, tagged with the context they were made in."""
+
+    def __init__(self):
+        self.records = []
+        self.context = {}
+
+    def set_context(self, **ctx):
+        self.context = ctx
+
+    def record(self, rec):
+        rec = {**self.context, **rec}
+        self.records.append(rec)
+        return rec
+
+
+TOKEN_LEDGER = TokenLedger()
+
+
+def _get(obj, *names):
+    for n in names:
+        if obj is None:
+            return None
+        obj = obj.get(n) if isinstance(obj, dict) else getattr(obj, n, None)
+    return obj
+
+
+def _int(v):
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def usage_from_response(resp, style):
+    """Token counts and stop reason from an OpenAI / Anthropic / Gemini response."""
+    if style == "anthropic":
+        u = _get(resp, "usage")
+        return {"input_tokens": _int(_get(u, "input_tokens")),
+                "output_tokens": _int(_get(u, "output_tokens")),
+                "cache_read_input_tokens": _int(_get(u, "cache_read_input_tokens")),
+                "cache_creation_input_tokens": _int(_get(u, "cache_creation_input_tokens")),
+                "finish_reason": _get(resp, "stop_reason")}
+    if style == "gemini":
+        u = _get(resp, "usage_metadata")
+        cands = _get(resp, "candidates") or []
+        return {"input_tokens": _int(_get(u, "prompt_token_count")),
+                "output_tokens": _int(_get(u, "candidates_token_count")),
+                "thinking_tokens": _int(_get(u, "thoughts_token_count")),
+                "finish_reason": str(_get(cands[0], "finish_reason")) if cands else None}
+    u = _get(resp, "usage")
+    choices = _get(resp, "choices") or []
+    return {"input_tokens": _int(_get(u, "prompt_tokens")),
+            "output_tokens": _int(_get(u, "completion_tokens")),
+            "cache_read_input_tokens": _int(_get(u, "prompt_tokens_details", "cached_tokens")),
+            "thinking_tokens": _int(_get(u, "completion_tokens_details", "reasoning_tokens")),
+            "finish_reason": _get(choices[0], "finish_reason") if choices else None}
+
+
+class UsageRecordingClient:
+    """
+    Transparent wrapper around an OpenAI, Anthropic, google-genai or
+    EstimatorClient client: every chat call is passed through unchanged and its
+    token usage is recorded on the ledger. All other attributes pass through.
+    """
+
+    def __init__(self, target, ledger, path=()):
+        object.__setattr__(self, "_ucr_target", target)
+        object.__setattr__(self, "_ucr_ledger", ledger)
+        object.__setattr__(self, "_ucr_path", path)
+
+    def __getattr__(self, name):
+        attr = getattr(self._ucr_target, name)
+        path = self._ucr_path + (name,)
+        if path in _USAGE_STYLES:
+            return self._ucr_wrap(attr, _USAGE_STYLES[path])
+        if any(p[:len(path)] == path for p in _USAGE_STYLES):
+            return UsageRecordingClient(attr, self._ucr_ledger, path)
+        return attr
+
+    def __setattr__(self, name, value):
+        setattr(self._ucr_target, name, value)
+
+    def _ucr_wrap(self, fn, style):
+        ledger = self._ucr_ledger
+        # Estimate runs answer through an EstimatorClient; real runs through the SDK.
+        source = "estimate" if _is_estimator_client(fn) else "api"
+
+        def call(*args, **kwargs):
+            t0 = time.time()
+            try:
+                resp = fn(*args, **kwargs)
+            except Exception as e:
+                ledger.record({"style": style, "source": source, "model": kwargs.get("model"),
+                               "input_tokens": None, "output_tokens": None,
+                               "error": f"{type(e).__name__}: {str(e)[:300]}",
+                               "latency_s": round(time.time() - t0, 3)})
+                raise
+            rec = usage_from_response(resp, style)
+            rec.update(style=style, source=source, model=kwargs.get("model"),
+                       latency_s=round(time.time() - t0, 3))
+            if source == "estimate":
+                try:
+                    from token_estimator import CORRECTION
+                except Exception:  # noqa: BLE001
+                    CORRECTION = 1.0
+                for k in ("input_tokens", "output_tokens"):
+                    if rec.get(k) is not None:
+                        rec[f"{k}_corrected"] = round(rec[k] * CORRECTION)
+            ledger.record(rec)
+            return resp
+        return call
+
+
+def _is_estimator_client(fn):
+    """True if a bound method belongs to an EstimatorClient (estimate run)."""
+    owner = getattr(fn, "__self__", None)
+    return owner is not None and "Estimator" in type(owner).__name__
+
+
+def record_client_usage(agent, ledger=TOKEN_LEDGER):
+    """Wrap an agent's client (once) so its calls are recorded."""
+    client = getattr(agent, "client", None)
+    if client is not None and not isinstance(client, UsageRecordingClient):
+        agent.client = UsageRecordingClient(client, ledger)
+
+
+def record_local_director_usage(agent, ledger=TOKEN_LEDGER):
+    """Count a local transformers director's tokens with its own tokenizer."""
+    orig = getattr(agent, "_generate_with_local_model", None)
+    if orig is None or getattr(orig, "_ucr_wrapped", False):
+        return
+
+    def counted(prompt, tokenizer):
+        t0 = time.time()
+        text = orig(prompt, tokenizer)
+        tok = tokenizer or getattr(getattr(agent, "local_model", None), "tokenizer", None)
+
+        def n(s):
+            try:
+                return len(tok.encode(s or "", add_special_tokens=False)) if tok else None
+            except Exception:  # noqa: BLE001
+                return None
+        ledger.record({"style": "local", "source": "local_tokenizer", "model": agent.model_name,
+                       "input_tokens": n(prompt), "output_tokens": n(text),
+                       "finish_reason": None, "latency_s": round(time.time() - t0, 3)})
+        return text
+    counted._ucr_wrapped = True
+    agent._generate_with_local_model = counted
+
+
+_TOKEN_FIELDS = ("input_tokens", "output_tokens", "input_tokens_corrected", "output_tokens_corrected",
+                 "cache_read_input_tokens", "cache_creation_input_tokens", "thinking_tokens")
+
+
+def summarize_token_records(records, keys):
+    """Totals over `records`, grouped by the tuple of `keys` (joined with ' | ')."""
+    groups = {}
+    for r in records:
+        g = " | ".join(str(r.get(k)) for k in keys) if keys else "all"
+        b = groups.setdefault(g, {"calls": 0, "errors": 0, "calls_without_usage": 0})
+        b["calls"] += 1
+        b["errors"] += int("error" in r)
+        b["calls_without_usage"] += int(r.get("input_tokens") is None and "error" not in r)
+        for f in _TOKEN_FIELDS:
+            if r.get(f) is not None:
+                b[f] = b.get(f, 0) + r[f]
+    return groups
+
+
+def token_usage_block(records):
+    """The per-turn / per-game token_usage block."""
+    return {
+        "totals": summarize_token_records(records, ()).get("all", {"calls": 0}),
+        "by_role": summarize_token_records(records, ("role",)),
+        "by_agent": summarize_token_records(records, ("role", "director")),
+        "by_model": summarize_token_records(records, ("role", "model", "source")),
+    }
+
+
+def attach_turn_tokens(turn_data, cValues, start):
+    """Save this turn's calls and totals on turn_data, and the totals in the CSV row."""
+    calls = TOKEN_LEDGER.records[start:]
+    turn_data["token_usage"] = {"calls": [dict(c) for c in calls], **token_usage_block(calls)}
+    by_role = turn_data["token_usage"]["by_role"]
+    for role, label in (("director", "Director"), ("builder", "Builder")):
+        b = by_role.get(role, {})
+        cValues[f"{label} Input Tokens"] = b.get("input_tokens", 0)
+        cValues[f"{label} Output Tokens"] = b.get("output_tokens", 0)
+
+
 def condition_tag(condition, policy_path=None, random_seed=0):
     if condition == "policy":
         return f"cond-policy-{Path(policy_path).stem}"
@@ -443,6 +660,16 @@ def run_craft_experiments(
 
         if token_estimator is not None:
             attach_estimator(token_estimator, builder_agent, director_agents, common_ground_agent)
+        # Record every model call's tokens (wraps whatever client each agent
+        # now holds: the real one, or the estimator's).
+        record_client_usage(builder_agent)
+        for agent in director_agents.values():
+            if getattr(agent, "use_api", True):
+                record_client_usage(agent)
+            else:
+                record_local_director_usage(agent)
+        if common_ground_agent is not None:
+            record_client_usage(common_ground_agent)
 
         # A fresh policy history for every game.
         policy_selector = None
@@ -587,6 +814,7 @@ def run_single_game(
         game_results[d.director_id + " Archetype"] = d.archetype
 
     game_results['turns'] = []
+    game_token_start = len(TOKEN_LEDGER.records)
 
     # Per-game counts of what each selection method picked.
     selection_counts = {
@@ -614,6 +842,7 @@ def run_single_game(
     for turn in range(max_turns):
         print(f"\n--- Turn {turn+1}/{max_turns} [condition={condition}] ---")
         game_state.increment_turn()
+        turn_token_start = len(TOKEN_LEDGER.records)
         cValues = {}
         cValues['Turn']=(turn + 1)
         turn_data = {
@@ -645,6 +874,8 @@ def run_single_game(
                     conversation_history=public_conversation,
                     available_blocks=game_state.available_blocks
                 )
+                TOKEN_LEDGER.set_context(role="director", director=did, turn=turn + 1,
+                                         structure_id=structure_data['id'], condition=condition)
                 resp = director_agents[did].generate_response(
                     current_view=full_board_state,           # full board, all layers
                     target_view=target_director_views[did],  # partial — director's perspective only
@@ -767,6 +998,8 @@ def run_single_game(
                     print(f"    {m['action'].upper()} {m.get('block','')} "
                         f"@ {m['position']} layer {m['layer']}{span_str}")
 
+            TOKEN_LEDGER.set_context(role="builder", director=None, turn=turn + 1,
+                                     structure_id=structure_data['id'], condition=condition)
             builder_prompt = builder_agent.get_builder_prompt(
                 director_discussion=builder_discussion,
                 current_state=game_state.current_structure,
@@ -900,6 +1133,8 @@ def run_single_game(
                     )
                     if use_common_ground and common_ground_agent is not None:
                         print("Analyzing common ground...")
+                        TOKEN_LEDGER.set_context(role="common_ground", director=None, turn=turn + 1,
+                                                 structure_id=structure_data['id'], condition=condition)
                         common_ground_result = common_ground_agent.generate_common_ground(
                             director_responses=director_responses,
                             current_board_state=game_state.current_structure,
@@ -934,6 +1169,7 @@ def run_single_game(
                 print("  Target achieved!")
                 turn_data['target_achieved'] = True
                 game_results['stopping_reason'] = 'target_achieved'
+                attach_turn_tokens(turn_data, cValues, turn_token_start)
                 game_results['turns'].append(turn_data)
                 break
             else:
@@ -944,6 +1180,7 @@ def run_single_game(
             if len(conversation_history) > 50:
                 conversation_history = conversation_history[-40:]
 
+            attach_turn_tokens(turn_data, cValues, turn_token_start)
             game_results['turns'].append(turn_data)
 
             # New row data as a single-row DataFrame
@@ -956,6 +1193,7 @@ def run_single_game(
         except Exception as e:
             print(f"  Error turn {turn+1}: {e}")
             turn_data['error'] = str(e)
+            attach_turn_tokens(turn_data, cValues, turn_token_start)
             game_results['turns'].append(turn_data)
             break
 
@@ -965,6 +1203,12 @@ def run_single_game(
     game_results['final_spans']     = copy.deepcopy(game_state.current_spans)
     game_results['selection_summary'] = selection_counts
     game_results['builder_parse_summary'] = parse_counts
+    TOKEN_LEDGER.set_context()
+    game_results['token_usage'] = token_usage_block(TOKEN_LEDGER.records[game_token_start:])
+    _gt = game_results['token_usage']['by_role']
+    print("  [tokens] this game: " + ", ".join(
+        f"{role} {b.get('input_tokens', 0)} in / {b.get('output_tokens', 0)} out ({b['calls']} calls)"
+        for role, b in sorted(_gt.items())))
     if parse_counts['turns_with_retry'] or parse_counts['unparsed_after_retries']:
         print(f"  [builder] parse retries this game: {parse_counts['retries_total']} over "
               f"{parse_counts['turns_with_retry']} turn(s); still unparsed after retries: "
@@ -1170,6 +1414,15 @@ if __name__ == "__main__":
                   "up to 3 extra round trips per turn, each resending the prompt, so builder "
                   "tokens are a lower bound. Run with --no_tools for an exact like-for-like count.")
     ESTIMATE_DIR = (args.output or f"{BASE_OUTPUT_DIR}_token_estimate") if args.token_estimate else None
+    # Gemini directors create google.genai.Client() inside every call: wrap
+    # whatever that class now returns (the real client, or the estimator's).
+    try:
+        from google import genai as _genai_for_usage
+        _make_genai_client = _genai_for_usage.Client
+        _genai_for_usage.Client = lambda *a, **k: UsageRecordingClient(_make_genai_client(*a, **k), TOKEN_LEDGER)
+    except ImportError:
+        pass
+    TOKEN_USAGE_DIR = ESTIMATE_DIR or args.output or BASE_OUTPUT_DIR
 
     print(f"Conditions: {CONDITIONS_TO_RUN}  ->  "
           + ", ".join(f"{c}: {output_dir_for(c)}" for c in CONDITIONS_TO_RUN))
@@ -1271,6 +1524,7 @@ if __name__ == "__main__":
     def run_all_structures(director_model_name, condition, shared_model=None, shared_tokenizer=None):
         output_dir = output_dir_for(condition)
         first_call = len(EST.calls) if EST is not None else 0
+        first_record = len(TOKEN_LEDGER.records)
         for structure_index in structure_indices:
             partType = "empty"
             print(f"\n  [{director_model_name} | {condition}] structure={structure_index}/{n_structures-1} "
@@ -1313,6 +1567,9 @@ if __name__ == "__main__":
             for c in EST.calls[first_call:]:
                 c["director_model"] = director_model_name
                 c["condition"] = condition
+        for r in TOKEN_LEDGER.records[first_record:]:
+            r["director_model"] = director_model_name
+            r["builder_model"] = BUILDER_MODEL
 
     # ── Run ───────────────────────────────────────────────────
     if DIRECTOR_MODE == "api":
@@ -1373,5 +1630,34 @@ if __name__ == "__main__":
         print(f"\nSample: {len(structure_indices)} structure(s) x {len(CONDITIONS_TO_RUN)} condition(s) "
               f"x {len(estimate['sample']['director_models'])} director model(s), up to {MAX_TURNS} turns. "
               f"Scale by (full run size / sample size). Saved to {est_path}")
+
+    # Run-level token usage, written for every run (real or estimate).
+    if TOKEN_LEDGER.records:
+        usage = {
+            "note": ("source=api: counts reported by the provider; source=estimate: the local "
+                     "estimator's raw counts, with *_corrected scaled by token_estimator.CORRECTION; "
+                     "source=local_tokenizer: counted with the local director's tokenizer."),
+            "sample": {"director_models": list(models_to_run_api) or list(models_to_run_local),
+                       "builder": BUILDER_MODEL, "conditions": CONDITIONS_TO_RUN,
+                       "structures": structure_indices, "max_turns": MAX_TURNS,
+                       "token_estimate": bool(args.token_estimate)},
+            "totals": summarize_token_records(TOKEN_LEDGER.records, ()).get("all", {}),
+            "by_role": summarize_token_records(TOKEN_LEDGER.records, ("role",)),
+            "by_director_model_condition_role": summarize_token_records(
+                TOKEN_LEDGER.records, ("director_model", "condition", "role")),
+            "by_role_model_source": summarize_token_records(TOKEN_LEDGER.records, ("role", "model", "source")),
+        }
+        os.makedirs(TOKEN_USAGE_DIR, exist_ok=True)
+        usage_path = os.path.join(TOKEN_USAGE_DIR, "token_usage.json")
+        with open(usage_path, "w") as f:
+            json.dump(usage, f, indent=2)
+        print("\n" + "=" * 60 + "\nTOKEN USAGE (all calls this run)\n" + "=" * 60)
+        for role, b in sorted(usage["by_role"].items()):
+            print(f"  {role:<14} calls={b['calls']:<5} input={b.get('input_tokens', 0):<10} "
+                  f"output={b.get('output_tokens', 0):<10}"
+                  + (f" (corrected: {b.get('input_tokens_corrected', 0)} / {b.get('output_tokens_corrected', 0)})"
+                     if 'input_tokens_corrected' in b else "")
+                  + (f" calls_without_usage={b['calls_without_usage']}" if b['calls_without_usage'] else ""))
+        print(f"  Saved to {usage_path}")
 
     print("All done.")
