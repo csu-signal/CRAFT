@@ -35,6 +35,7 @@
 # python run_craft.py ... --token_estimate --estimate_backend ollama
 
 import os
+import re
 import json
 import copy
 import random
@@ -58,6 +59,8 @@ from agents.builder_agent import BuilderAgent, BuilderType
 from agents.oracle import enumerate_correct_actions
 import inspect
 import time
+import hashlib
+from types import SimpleNamespace
 import sys
 
 print("EnhancedGameState from:", inspect.getfile(EnhancedGameState))
@@ -362,6 +365,218 @@ def usage_from_response(resp, style):
             "finish_reason": _get(choices[0], "finish_reason") if choices else None}
 
 
+# ─────────────────────────────────────────
+# PROMPT CACHING for Claude models (--prompt_cache)
+# ─────────────────────────────────────────
+#
+# https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+# Both prompts start with a long block that is identical on every call by the
+# same agent in a game, followed by the board, target and conversation, which
+# change every turn. The cache breakpoint therefore goes on the last stable
+# block: the prompt is sent as two text blocks split at the line containing
+# CURRENT BOARD STATE, with cache_control on the first. (Automatic caching would
+# put the breakpoint on the last block, which changes every turn: a 1.25x write
+# on every call and never a read.) The text the model sees is unchanged.
+#
+#   * Claude directors (native Anthropic SDK): messages.create gets the split.
+#   * Claude builder: the OpenAI-compatible endpoint can't cache, so with
+#     --prompt_cache its plain calls (no tools) go through the native API
+#     with the same split; tool-using calls stay on the compatible endpoint.
+#   * --token_estimate: no API call is made, so caching is SIMULATED: a call
+#     reads if the same prefix (same model) was already sent earlier in the same
+#     game, otherwise it writes; prefixes shorter than the model's minimum
+#     cacheable length are not cached. Calls within a game are assumed to be
+#     less than the cache TTL apart.
+# Usage fields follow the API: input_tokens = uncached input only, plus
+# cache_read_input_tokens and cache_creation_input_tokens; input_tokens_total
+# is their sum.
+
+PROMPT_CACHE = {"enabled": False, "ttl": "5m"}
+CACHE_SPLIT_MARKER = "CURRENT BOARD STATE"
+SIM_PROMPT_CACHE = set()          # simulated cache entries, reset every game
+_NATIVE_ANTHROPIC = {"client": None, "drop_temperature": False}
+
+
+# Minimum cacheable prompt length per model, from the prompt-caching docs
+# (Claude API). Shorter prompts are processed without caching, silently.
+CLAUDE_CACHE_MINIMUM = [
+    (r"haiku-4-5|opus-4-6|opus-4-5", 4096),
+    (r"opus-4-7|mythos-preview", 2048),
+    (r"opus-4-8|sonnet-5$|sonnet-4-6|sonnet-4-5|opus-4-1|opus-4$|sonnet-4$", 1024),
+    (r"fable|mythos|opus-5|sonnet-5-5|haiku-5-5", 512),
+]
+
+
+def claude_cache_minimum(model: str) -> int:
+    m = re.sub(r"-\d{8}$", "", (model or "").lower().strip())   # drop a -YYYYMMDD snapshot suffix
+    for pattern, minimum in CLAUDE_CACHE_MINIMUM:
+        if re.search(pattern, m):
+            return minimum
+    return 1024   # unknown Claude model: a middle value
+
+
+def split_cacheable(text):
+    """(stable prefix, rest) split at the start of the line containing the
+    marker, or None if the marker isn't there (then nothing is cached)."""
+    if not isinstance(text, str):
+        return None
+    i = text.find(CACHE_SPLIT_MARKER)
+    if i <= 0:
+        return None
+    line_start = text.rfind("\n", 0, i) + 1
+    if line_start <= 0:
+        return None
+    return text[:line_start], text[line_start:]
+
+
+def _cache_control():
+    cc = {"type": "ephemeral"}
+    if PROMPT_CACHE["ttl"] == "1h":
+        cc["ttl"] = "1h"
+    return cc
+
+
+def _first_user_index(messages):
+    return next((i for i, m in enumerate(messages)
+                 if isinstance(m, dict) and m.get("role") == "user"), None)
+
+
+def cached_anthropic_kwargs(kwargs):
+    """Anthropic messages.create kwargs with the first user prompt split and
+    marked for caching, plus the stable prefix text (or None)."""
+    msgs = list(kwargs.get("messages") or [])
+    i = _first_user_index(msgs)
+    parts = split_cacheable(msgs[i].get("content")) if i is not None else None
+    if not parts:
+        return kwargs, None
+    prefix, rest = parts
+    msgs[i] = {**msgs[i], "content": [{"type": "text", "text": prefix, "cache_control": _cache_control()},
+                                      {"type": "text", "text": rest}]}
+    system = kwargs.get("system")
+    sys_text = system if isinstance(system, str) else ""
+    return {**kwargs, "messages": msgs}, sys_text + "\n" + prefix
+
+
+def stable_prefix_text(style, kwargs):
+    """The stable prefix a call would cache (system + prompt up to the board)."""
+    msgs = list(kwargs.get("messages") or [])
+    i = _first_user_index(msgs)
+    parts = split_cacheable(msgs[i].get("content")) if i is not None else None
+    if not parts:
+        return None
+    if style == "anthropic":
+        system = kwargs.get("system") if isinstance(kwargs.get("system"), str) else ""
+    else:
+        system = "\n".join(str(m.get("content")) for m in msgs
+                           if isinstance(m, dict) and m.get("role") == "system")
+    return system + "\n" + parts[0]
+
+
+def native_anthropic_chat(kwargs):
+    """
+    Run an OpenAI-style chat call (no tools) through the native Anthropic API
+    with the cache breakpoint, and return (OpenAI-shaped response, Anthropic
+    response). Used for the Claude builder, whose OpenAI-compatible endpoint
+    can't cache.
+    """
+    import anthropic
+    if _NATIVE_ANTHROPIC["client"] is None:
+        key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+        _NATIVE_ANTHROPIC["client"] = anthropic.Anthropic(api_key=key)
+    client = _NATIVE_ANTHROPIC["client"]
+    msgs = kwargs.get("messages") or []
+    system = "\n".join(str(m["content"]) for m in msgs if m.get("role") == "system")
+    turns = [{"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
+             for m in msgs if m.get("role") in ("user", "assistant")]
+    a_kwargs = {"model": kwargs["model"], "max_tokens": kwargs.get("max_tokens") or 1024,
+                "messages": turns}
+    if system:
+        a_kwargs["system"] = system
+    if kwargs.get("temperature") is not None and not _NATIVE_ANTHROPIC["drop_temperature"]:
+        a_kwargs["temperature"] = kwargs["temperature"]
+    a_kwargs, _ = cached_anthropic_kwargs(a_kwargs)
+    if "temperature" in a_kwargs and _NATIVE_ANTHROPIC.get("temperature_via_extra_body"):
+        a_kwargs["extra_body"] = {"temperature": a_kwargs.pop("temperature")}
+    while True:
+        try:
+            a_resp = client.messages.create(**a_kwargs)
+            break
+        except TypeError as e:
+            # The installed SDK doesn't accept `temperature` as a keyword (the
+            # call never reached the API). Send it in the request body instead,
+            # so the model still gets the Builder's temperature.
+            if "temperature" in a_kwargs and "temperature" in str(e):
+                _NATIVE_ANTHROPIC["temperature_via_extra_body"] = True
+                a_kwargs["extra_body"] = {**a_kwargs.get("extra_body", {}), "temperature": a_kwargs.pop("temperature")}
+                print("  [builder] native API: SDK has no temperature keyword; sending it via extra_body")
+                continue
+            raise
+        except anthropic.BadRequestError as e:
+            # The model itself rejects a non-default temperature: drop it for the run.
+            body_temp = "temperature" in (a_kwargs.get("extra_body") or {})
+            if ("temperature" in a_kwargs or body_temp) and "temperature" in str(e).lower():
+                _NATIVE_ANTHROPIC["drop_temperature"] = True
+                a_kwargs.pop("temperature", None)
+                if body_temp:
+                    a_kwargs["extra_body"].pop("temperature")
+                    if not a_kwargs["extra_body"]:
+                        a_kwargs.pop("extra_body")
+                print("  [builder] native API: model rejects temperature; using its default for the rest of the run")
+                continue
+            raise
+    text = "".join(getattr(b, "text", "") for b in (a_resp.content or []) if getattr(b, "type", None) == "text")
+    u = a_resp.usage
+    total_in = sum(int(getattr(u, k, 0) or 0) for k in
+                   ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    oa = SimpleNamespace(
+        choices=[SimpleNamespace(index=0, finish_reason="length" if a_resp.stop_reason == "max_tokens" else "stop",
+                                 message=SimpleNamespace(role="assistant", content=text, tool_calls=None))],
+        usage=SimpleNamespace(prompt_tokens=total_in, completion_tokens=int(u.output_tokens or 0),
+                              total_tokens=total_in + int(u.output_tokens or 0)))
+    return oa, a_resp
+
+
+def simulate_cache(rec, fn, style, kwargs):
+    """Estimate runs: split the recorded input into uncached / cache read /
+    cache write as the API would, using the estimator's own token counts."""
+    prefix = stable_prefix_text(style, kwargs)
+    est = getattr(getattr(fn, "__self__", None), "est", None)
+    if prefix is None or est is None or rec.get("input_tokens") is None:
+        return
+    try:
+        from token_estimator import CORRECTION
+    except Exception:  # noqa: BLE001
+        CORRECTION = 1.0
+    try:
+        n_raw = min(int(est.count(prefix)), int(rec["input_tokens"]))
+    except Exception:  # noqa: BLE001
+        return
+    n_corr = round(n_raw * CORRECTION)
+    model = str(kwargs.get("model") or "")
+    if n_corr < claude_cache_minimum(model):
+        rec["cache_skipped"] = f"prefix {n_corr} < minimum {claude_cache_minimum(model)} tokens"
+        return
+    key = (model, hashlib.sha1(prefix.encode("utf-8")).hexdigest())
+    field = "cache_read_input_tokens" if key in SIM_PROMPT_CACHE else "cache_creation_input_tokens"
+    SIM_PROMPT_CACHE.add(key)
+    rec[field] = n_raw
+    rec["input_tokens"] = rec["input_tokens"] - n_raw
+    rec[f"{field}_corrected"] = n_corr
+    if rec.get("input_tokens_corrected") is not None:
+        rec["input_tokens_corrected"] = max(0, rec["input_tokens_corrected"] - n_corr)
+    rec["cache_simulated"] = True
+
+
+def _add_input_totals(rec):
+    """input_tokens_total = uncached + cache read + cache write (also *_corrected)."""
+    if rec.get("input_tokens") is not None:
+        rec["input_tokens_total"] = sum(int(rec.get(k) or 0) for k in
+                                        ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    if rec.get("input_tokens_corrected") is not None:
+        rec["input_tokens_total_corrected"] = sum(int(rec.get(k) or 0) for k in (
+            "input_tokens_corrected", "cache_read_input_tokens_corrected", "cache_creation_input_tokens_corrected"))
+
+
 class UsageRecordingClient:
     """
     Transparent wrapper around an OpenAI, Anthropic, google-genai or
@@ -393,17 +608,34 @@ class UsageRecordingClient:
 
         def call(*args, **kwargs):
             t0 = time.time()
+            model = str(kwargs.get("model") or "")
+            cache_on = PROMPT_CACHE["enabled"] and model.lower().startswith("claude")
+            # Real Claude builder calls without tools: native API so they can cache.
+            native = cache_on and source == "api" and style == "openai" and not kwargs.get("tools")
+            call_kwargs = kwargs
+            if cache_on and source == "api" and style == "anthropic":
+                call_kwargs, _ = cached_anthropic_kwargs(kwargs)
             try:
-                resp = fn(*args, **kwargs)
+                if native:
+                    resp, a_resp = native_anthropic_chat(kwargs)
+                else:
+                    resp = fn(*args, **call_kwargs)
             except Exception as e:
                 ledger.record({"style": style, "source": source, "model": kwargs.get("model"),
                                "input_tokens": None, "output_tokens": None,
                                "error": f"{type(e).__name__}: {str(e)[:300]}",
                                "latency_s": round(time.time() - t0, 3)})
                 raise
-            rec = usage_from_response(resp, style)
-            rec.update(style=style, source=source, model=kwargs.get("model"),
-                       latency_s=round(time.time() - t0, 3))
+            if native:
+                rec = usage_from_response(a_resp, "anthropic")
+                rec.update(style="anthropic", source=source, model=kwargs.get("model"),
+                           via="native_for_cache", latency_s=round(time.time() - t0, 3))
+            else:
+                rec = usage_from_response(resp, style)
+                rec.update(style=style, source=source, model=kwargs.get("model"),
+                           latency_s=round(time.time() - t0, 3))
+            if cache_on:
+                rec["prompt_cache"] = PROMPT_CACHE["ttl"]
             if source == "estimate":
                 try:
                     from token_estimator import CORRECTION
@@ -412,6 +644,9 @@ class UsageRecordingClient:
                 for k in ("input_tokens", "output_tokens"):
                     if rec.get(k) is not None:
                         rec[f"{k}_corrected"] = round(rec[k] * CORRECTION)
+                if cache_on:
+                    simulate_cache(rec, fn, style, kwargs)
+            _add_input_totals(rec)
             ledger.record(rec)
             return resp
         return call
@@ -455,7 +690,9 @@ def record_local_director_usage(agent, ledger=TOKEN_LEDGER):
 
 
 _TOKEN_FIELDS = ("input_tokens", "output_tokens", "input_tokens_corrected", "output_tokens_corrected",
-                 "cache_read_input_tokens", "cache_creation_input_tokens", "thinking_tokens")
+                 "cache_read_input_tokens", "cache_creation_input_tokens", "thinking_tokens",
+                 "cache_read_input_tokens_corrected", "cache_creation_input_tokens_corrected",
+                 "input_tokens_total", "input_tokens_total_corrected")
 
 
 def summarize_token_records(records, keys):
@@ -490,8 +727,11 @@ def attach_turn_tokens(turn_data, cValues, start):
     by_role = turn_data["token_usage"]["by_role"]
     for role, label in (("director", "Director"), ("builder", "Builder")):
         b = by_role.get(role, {})
-        cValues[f"{label} Input Tokens"] = b.get("input_tokens", 0)
+        # Total input (uncached + cache read + cache write), comparable with or without caching.
+        cValues[f"{label} Input Tokens"] = b.get("input_tokens_total", b.get("input_tokens", 0))
         cValues[f"{label} Output Tokens"] = b.get("output_tokens", 0)
+        cValues[f"{label} Cache Read Tokens"] = b.get("cache_read_input_tokens", 0)
+        cValues[f"{label} Cache Write Tokens"] = b.get("cache_creation_input_tokens", 0)
 
 
 def condition_tag(condition, policy_path=None, random_seed=0):
@@ -530,6 +770,7 @@ def run_craft_experiments(
     random_seed = 0,
     token_estimator = None,
     builder_parse_retries = 2,
+    builder_max_consecutive_errors = 3,
     builder_max_tokens = None,
     builder_one_line_instruction = True,
 ):
@@ -589,8 +830,11 @@ def run_craft_experiments(
         'policy_arch': getattr(policy_scorer, 'arch', None) if policy_scorer else None,   # incl. recov_head / recov_weight
         'random_seed'    : random_seed,
         'builder_parse_retries': builder_parse_retries,
+        'builder_max_consecutive_errors': builder_max_consecutive_errors,
         'builder_max_tokens': builder_max_tokens,       # None = provider default (see BuilderAgent)
         'builder_one_line_instruction': builder_one_line_instruction,
+        'prompt_cache': PROMPT_CACHE["enabled"],
+        'prompt_cache_ttl': PROMPT_CACHE["ttl"] if PROMPT_CACHE["enabled"] else None,
             },
         'games': []
     }
@@ -699,6 +943,7 @@ def run_craft_experiments(
                 condition = condition,
                 policy_selector = policy_selector,
                 random_seed = random_seed,
+                builder_max_consecutive_errors = builder_max_consecutive_errors,
             )
         except Exception as e:
             print(f"Error in structure {idx}: {e}")
@@ -719,6 +964,7 @@ def run_craft_experiments(
             f.write(f"- Turns: {game_result['turns_taken']}\n")
             f.write(f"- Progress: {game_result.get('final_progress', 0):.3f}\n")
             f.write(f"- Completed: {game_result.get('completed', False)}\n")
+            f.write(f"- Stopping reason: {game_result.get('stopping_reason', 'n/a')}\n")
             if game_result.get('selection_summary'):
                 f.write(f"- Selection: {json.dumps(game_result['selection_summary'])}\n")
 
@@ -756,9 +1002,14 @@ def run_single_game(
     condition = "baseline",
     policy_selector = None,
     random_seed = 0,
+    builder_max_consecutive_errors = 3,
 
 ):
     requestCount = 0
+    # Builder API errors (the call itself failed, not an unparseable reply).
+    # generate_move turns these into CLARIFYs, so without this check a broken
+    # Builder would silently use up every turn while the directors keep paying.
+    consecutive_builder_errors = 0
     start = time.time()
     target_structure    = structure_data['structure']
     target_spans        = structure_data['spans']          # already int keys
@@ -815,6 +1066,7 @@ def run_single_game(
 
     game_results['turns'] = []
     game_token_start = len(TOKEN_LEDGER.records)
+    SIM_PROMPT_CACHE.clear()      # estimate runs: each game starts with a cold simulated cache
 
     # Per-game counts of what each selection method picked.
     selection_counts = {
@@ -836,6 +1088,7 @@ def run_single_game(
         'rejected_replies': 0,
         'rejected_by_reason': {},       # empty | no_move_line | parse_error | other
         'rejected_hit_output_cap': 0,   # rejected replies that stopped at the output cap
+        'api_errors': 0,                # Builder calls that failed outright (not counted as unparsed)
     }
 
     # ── MAIN LOOP ─────────────────────────────────────────────
@@ -1047,6 +1300,38 @@ def run_single_game(
             parse_counts['retries_total'] += attempts - 1
             parse_counts['unparsed_after_retries'] += int(parse_failed)
             parse_counts['model_clarify'] += int(builder_move.get('action') == 'clarify' and not parse_failed)
+
+            # ── Builder API errors ────────────────────────────
+            builder_errors = [c["error"] for c in TOKEN_LEDGER.records[turn_token_start:]
+                              if c.get("role") == "builder" and c.get("error")]
+            api_error = (builder_errors[-1] if builder_errors else
+                         builder_move.get('clarification') if str(builder_move.get('clarification', ''))
+                         .startswith("Error in move generation") else None)
+            if api_error:
+                consecutive_builder_errors += 1
+                turn_data['builder_api_error'] = api_error
+                # A failed call isn't an unparseable reply: keep the parse stats clean.
+                parse_counts['api_errors'] += 1
+                if parse_failed:
+                    parse_counts['unparsed_after_retries'] -= 1
+                    parse_failed = False
+                    turn_data['builder_parse_failed'] = False
+                limit = builder_max_consecutive_errors
+                print(f"  [builder] API ERROR ({consecutive_builder_errors}"
+                      f"{f'/{limit}' if limit else ''} in a row): {api_error}")
+                if limit and consecutive_builder_errors >= limit:
+                    bar = "!" * 76
+                    print(f"\n{bar}\n  STOPPING GAME: the Builder's API call failed {consecutive_builder_errors} "
+                          f"turns in a row.\n  Last error: {api_error}\n"
+                          f"  Fix the Builder (model name, API key, endpoint) before rerunning; "
+                          f"--builder_max_consecutive_errors 0 disables this stop.\n{bar}\n")
+                    game_results['stopping_reason'] = 'builder_api_errors'
+                    game_results['builder_api_error'] = api_error
+                    attach_turn_tokens(turn_data, cValues, turn_token_start)
+                    game_results['turns'].append(turn_data)
+                    break
+            else:
+                consecutive_builder_errors = 0
             cValues['Transcription'] = director_discussion_full
             cValues['Condition'] = condition
             cValues['Selection Method'] = used_method
@@ -1209,10 +1494,11 @@ def run_single_game(
     print("  [tokens] this game: " + ", ".join(
         f"{role} {b.get('input_tokens', 0)} in / {b.get('output_tokens', 0)} out ({b['calls']} calls)"
         for role, b in sorted(_gt.items())))
-    if parse_counts['turns_with_retry'] or parse_counts['unparsed_after_retries']:
+    if parse_counts['turns_with_retry'] or parse_counts['unparsed_after_retries'] or parse_counts['api_errors']:
         print(f"  [builder] parse retries this game: {parse_counts['retries_total']} over "
               f"{parse_counts['turns_with_retry']} turn(s); still unparsed after retries: "
-              f"{parse_counts['unparsed_after_retries']}; rejected replies by reason: "
+              f"{parse_counts['unparsed_after_retries']}; API errors: {parse_counts['api_errors']}; "
+              f"rejected replies by reason: "
               f"{parse_counts['rejected_by_reason']} ({parse_counts['rejected_hit_output_cap']} hit the output cap)")
 
     if game_state.progress_tracker.progress_history:
@@ -1256,6 +1542,9 @@ if __name__ == "__main__":
                         help="Number of oracle moves to show per turn")
     parser.add_argument("--no_tools",       action="store_true",
                         help="Disable builder tool use (simulate_move)")
+    parser.add_argument("--builder_max_consecutive_errors", type=int, default=3,
+                        help="End a game when the Builder's API call fails this many turns in a row "
+                             "(failed calls, not unparseable replies). 0 = never stop.")
     parser.add_argument("--builder_parse_retries", type=int, default=2,
                         help="Re-prompt the Builder for the PLACE/REMOVE/CLARIFY format up to N times "
                              "when its reply can't be parsed, before the turn counts as a CLARIFY "
@@ -1263,6 +1552,13 @@ if __name__ == "__main__":
     parser.add_argument("--builder_max_tokens", type=int, default=None,
                         help="Output cap for the Builder's move call and its retries. Default: the "
                              "rollout harness's values (400; 4096 for Claude). 250 = old full-game value.")
+    parser.add_argument("--prompt_cache", action="store_true",
+                        help="Prompt caching for Claude models: the stable start of each director and "
+                             "builder prompt (everything before CURRENT BOARD STATE) is cached. The Claude "
+                             "builder's plain calls then use the native API. With --token_estimate the cache "
+                             "is simulated. Off by default.")
+    parser.add_argument("--prompt_cache_ttl", choices=["5m", "1h"], default="5m",
+                        help="(--prompt_cache) Cache lifetime: 5m (writes 1.25x input price) or 1h (2x).")
     parser.add_argument("--builder_no_one_line_instruction", action="store_true",
                         help="Leave 'Output EXACTLY ONE line...' out of the Builder's system prompt "
                              "(the old full-game prompt). By default it is included, as in the rollout harness.")
@@ -1340,10 +1636,19 @@ if __name__ == "__main__":
     run_tag    = f"run{RUN}"
     print(args)
 
+    PROMPT_CACHE["enabled"] = bool(args.prompt_cache)
+    PROMPT_CACHE["ttl"] = args.prompt_cache_ttl
+    cache_tag = (f"_pcache{args.prompt_cache_ttl}" if args.prompt_cache else "")
     BASE_OUTPUT_DIR = args.output or (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
-        f"{oracle_tag}_{tools_tag}_{run_tag}")
+        f"{oracle_tag}_{tools_tag}_{run_tag}{cache_tag}")
+    if args.prompt_cache:
+        print(f"[cache] Prompt caching ON for Claude models (ttl {args.prompt_cache_ttl}): breakpoint at "
+              f"the line before '{CACHE_SPLIT_MARKER}'."
+              + (" Simulated (--token_estimate)." if args.token_estimate else "")
+              + ("" if args.no_tools else " Tool-using builder calls can't be cached (OpenAI-compatible "
+                                          "endpoint); add --no_tools to cache the builder too."))
 
     # ── Conditions and policy ─────────────────────────────────
     CONDITIONS_TO_RUN = [CONDITION_ALIASES.get(c.strip(), c.strip())
@@ -1553,6 +1858,7 @@ if __name__ == "__main__":
                     random_seed=args.random_seed,
                     token_estimator=EST,
                     builder_parse_retries=args.builder_parse_retries,
+                    builder_max_consecutive_errors=args.builder_max_consecutive_errors,
                     builder_max_tokens=args.builder_max_tokens,
                     builder_one_line_instruction=not args.builder_no_one_line_instruction,
                 )
@@ -1658,6 +1964,12 @@ if __name__ == "__main__":
                   + (f" (corrected: {b.get('input_tokens_corrected', 0)} / {b.get('output_tokens_corrected', 0)})"
                      if 'input_tokens_corrected' in b else "")
                   + (f" calls_without_usage={b['calls_without_usage']}" if b['calls_without_usage'] else ""))
+        if args.prompt_cache:
+            for role, b in sorted(usage["by_role"].items()):
+                rd = b.get("cache_read_input_tokens", 0); wr = b.get("cache_creation_input_tokens", 0)
+                tot = b.get("input_tokens_total", 0) or 1
+                print(f"  [cache] {role:<12} read={rd:<9} write={wr:<9} "
+                      f"({100 * rd / tot:.0f}% of input read from cache)")
         print(f"  Saved to {usage_path}")
 
     print("All done.")
