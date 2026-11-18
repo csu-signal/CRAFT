@@ -307,22 +307,46 @@ _USAGE_STYLES = {("chat", "completions", "create"): "openai",
 
 
 class TokenLedger:
-    """All recorded model calls, tagged with the context they were made in."""
+    """
+    All recorded model calls, tagged with the context they were made in.
+
+    Every call is also appended to a JSONL file (one JSON object per line) the
+    moment it completes, so interrupted runs (Ctrl+C, crashes) are still fully
+    logged. Each line carries the run id, a timestamp, the role/director/turn
+    context, the director and builder models, and the token counts.
+    """
 
     def __init__(self):
         self.records = []
         self.context = {}
+        self.base = {}            # run-level tags: run_id, director_model, builder_model
+        self.jsonl_path = None
 
     def set_context(self, **ctx):
         self.context = ctx
 
+    def set_base(self, **tags):
+        self.base.update(tags)
+
+    def open_log(self, path):
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self.jsonl_path = path
+
     def record(self, rec):
-        rec = {**self.context, **rec}
+        rec = {**self.base, **self.context, **rec,
+               "ts": datetime.now().isoformat(timespec="seconds")}
         self.records.append(rec)
+        if self.jsonl_path:
+            # One line per call, written and flushed immediately.
+            with open(self.jsonl_path, "a") as f:
+                f.write(json.dumps(rec, default=str) + "\n")
         return rec
 
 
 TOKEN_LEDGER = TokenLedger()
+# Unique per run (set in __main__): goes into every output file name so runs
+# never overwrite each other's logs.
+RUN_ID = None
 
 
 def _get(obj, *names):
@@ -806,6 +830,7 @@ def run_craft_experiments(
     all_results = {
     'experiment_info': {
         'timestamp'      : current_time,
+        'run_id'         : RUN_ID,
         'dataset_path'   : dataset_path,
         'structure_index': structure_index,
         'max_turns'      : max_turns,
@@ -842,10 +867,11 @@ def run_craft_experiments(
     model_combo_dir = f"{output_dir}/{director_model_name}_{builder_model_name}/"
     os.makedirs(model_combo_dir, exist_ok=True)
 
-    md_path  = f"{model_combo_dir}/craft_{sample['id']}_{run}.md"
-    json_path = f"{model_combo_dir}/craft_{sample['id']}_{run}.json"
+    run_suffix = f"_{RUN_ID}" if RUN_ID else ""      # never overwrite an earlier run's files
+    md_path  = f"{model_combo_dir}/craft_{sample['id']}_{run}{run_suffix}.md"
+    json_path = f"{model_combo_dir}/craft_{sample['id']}_{run}{run_suffix}.json"
     os.makedirs(os.path.dirname(json_path), exist_ok=True)
-    main_grice_correctness_filename = f"{model_combo_dir}/craft_{sample['id']}_correctness_{run}.csv"
+    main_grice_correctness_filename = f"{model_combo_dir}/craft_{sample['id']}_correctness_{run}{run_suffix}.csv"
 
     with open(md_path, 'w') as f:
         f.write(f"# CRAFT Results — {sample['structure']}\n\n")
@@ -1610,6 +1636,7 @@ if __name__ == "__main__":
                         help="(--estimate_backend ollama) Starting context size; grows automatically "
                              "if a prompt needs more, so prompts are never cut.")
     args = parser.parse_args()
+    RUN_ID = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + "%04x" % random.SystemRandom().getrandbits(16)
 
     if args.token_estimate:
         # Agents build their real clients before the estimator replaces them,
@@ -1728,6 +1755,10 @@ if __name__ == "__main__":
     except ImportError:
         pass
     TOKEN_USAGE_DIR = ESTIMATE_DIR or args.output or BASE_OUTPUT_DIR
+    TOKEN_LEDGER.set_base(run_id=RUN_ID, builder_model=BUILDER_MODEL)
+    TOKEN_LEDGER.open_log(os.path.join(TOKEN_USAGE_DIR, f"token_calls_{RUN_ID}.jsonl"))
+    print(f"[run] id {RUN_ID}; every model call is logged as it happens to "
+          f"{TOKEN_LEDGER.jsonl_path}")
 
     print(f"Conditions: {CONDITIONS_TO_RUN}  ->  "
           + ", ".join(f"{c}: {output_dir_for(c)}" for c in CONDITIONS_TO_RUN))
@@ -1830,6 +1861,7 @@ if __name__ == "__main__":
         output_dir = output_dir_for(condition)
         first_call = len(EST.calls) if EST is not None else 0
         first_record = len(TOKEN_LEDGER.records)
+        TOKEN_LEDGER.set_base(director_model=director_model_name)   # tags every call as it is logged
         for structure_index in structure_indices:
             partType = "empty"
             print(f"\n  [{director_model_name} | {condition}] structure={structure_index}/{n_structures-1} "
@@ -1928,7 +1960,7 @@ if __name__ == "__main__":
             "estimate_model": args.estimate_model if args.estimate_backend == "ollama" else None,
         }
         os.makedirs(ESTIMATE_DIR, exist_ok=True)
-        est_path = os.path.join(ESTIMATE_DIR, "token_estimate.json")
+        est_path = os.path.join(ESTIMATE_DIR, f"token_estimate_{RUN_ID}.json")
         with open(est_path, "w") as f:
             json.dump(estimate, f, indent=2)
         print("\n" + "=" * 60 + "\nTOKEN ESTIMATE (tokens already scaled by CORRECTION)\n" + "=" * 60)
@@ -1943,6 +1975,8 @@ if __name__ == "__main__":
             "note": ("source=api: counts reported by the provider; source=estimate: the local "
                      "estimator's raw counts, with *_corrected scaled by token_estimator.CORRECTION; "
                      "source=local_tokenizer: counted with the local director's tokenizer."),
+            "run_id": RUN_ID,
+            "call_log": TOKEN_LEDGER.jsonl_path,
             "sample": {"director_models": list(models_to_run_api) or list(models_to_run_local),
                        "builder": BUILDER_MODEL, "conditions": CONDITIONS_TO_RUN,
                        "structures": structure_indices, "max_turns": MAX_TURNS,
@@ -1954,7 +1988,7 @@ if __name__ == "__main__":
             "by_role_model_source": summarize_token_records(TOKEN_LEDGER.records, ("role", "model", "source")),
         }
         os.makedirs(TOKEN_USAGE_DIR, exist_ok=True)
-        usage_path = os.path.join(TOKEN_USAGE_DIR, "token_usage.json")
+        usage_path = os.path.join(TOKEN_USAGE_DIR, f"token_usage_{RUN_ID}.json")
         with open(usage_path, "w") as f:
             json.dump(usage, f, indent=2)
         print("\n" + "=" * 60 + "\nTOKEN USAGE (all calls this run)\n" + "=" * 60)

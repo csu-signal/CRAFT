@@ -1,0 +1,95 @@
+{
+  "note": "source=api: counts reported by the provider; source=estimate: the local estimator's raw counts, with *_corrected scaled by token_estimator.CORRECTION; source=local_tokenizer: counted with the local director's tokenizer.",
+  "run_id": "20261117-210247-ab1a",
+  "call_log": "craft_results/tokenEstimateCache/token_calls_20261117-210247-ab1a.jsonl",
+  "sample": {
+    "director_models": [
+      "claude-haiku-5-5"
+    ],
+    "builder": "claude-haiku-5-5",
+    "conditions": [
+      "policy"
+    ],
+    "structures": [
+      0
+    ],
+    "max_turns": 20,
+    "token_estimate": false
+  },
+  "totals": {
+    "calls": 80,
+    "errors": 0,
+    "calls_without_usage": 0,
+    "input_tokens": 272950,
+    "output_tokens": 128560,
+    "cache_read_input_tokens": 207806,
+    "cache_creation_input_tokens": 10938,
+    "input_tokens_total": 491694
+  },
+  "by_role": {
+    "director": {
+      "calls": 60,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 218329,
+      "output_tokens": 116231,
+      "cache_read_input_tokens": 182764,
+      "cache_creation_input_tokens": 9620,
+      "input_tokens_total": 410713
+    },
+    "builder": {
+      "calls": 20,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 54621,
+      "output_tokens": 12329,
+      "cache_read_input_tokens": 25042,
+      "cache_creation_input_tokens": 1318,
+      "input_tokens_total": 80981
+    }
+  },
+  "by_director_model_condition_role": {
+    "claude-haiku-5-5 | policy | director": {
+      "calls": 60,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 218329,
+      "output_tokens": 116231,
+      "cache_read_input_tokens": 182764,
+      "cache_creation_input_tokens": 9620,
+      "input_tokens_total": 410713
+    },
+    "claude-haiku-5-5 | policy | builder": {
+      "calls": 20,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 54621,
+      "output_tokens": 12329,
+      "cache_read_input_tokens": 25042,
+      "cache_creation_input_tokens": 1318,
+      "input_tokens_total": 80981
+    }
+  },
+  "by_role_model_source": {
+    "director | claude-haiku-5-5 | api": {
+      "calls": 60,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 218329,
+      "output_tokens": 116231,
+      "cache_read_input_tokens": 182764,
+      "cache_creation_input_tokens": 9620,
+      "input_tokens_total": 410713
+    },
+    "builder | claude-haiku-5-5 | api": {
+      "calls": 20,
+      "errors": 0,
+      "calls_without_usage": 0,
+      "input_tokens": 54621,
+      "output_tokens": 12329,
+      "cache_read_input_tokens": 25042,
+      "cache_creation_input_tokens": 1318,
+      "input_tokens_total": 80981
+    }
+  }
+}

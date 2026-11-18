@@ -22,6 +22,13 @@ Anthropic prompt caching; a 3rd and 4th number do the same on the command line):
 
 The numbers above are placeholders: use your provider's current prices.
 
+Call logs (token_calls_<run_id>.jsonl)
+  run_craft.py also appends every model call to a per-run JSONL file the moment
+  it completes. These are priced too, grouped by run, in their own section: they
+  include runs that were interrupted or whose game files were never written, so
+  their total is the one to compare with the Claude Console / provider bill.
+  (Game files only exist for games that finished.)
+
 Which tokens are billed
   * source "api": the provider's own counts.
   * source "estimate" (--token_estimate runs): the *_corrected counts
@@ -36,7 +43,8 @@ Which tokens are billed
     price (0.1x; 0.05x for Opus/Sonnet 5.5; 0.025x for Fable/Mythos 5.1-5.2) and
     writes 1.25x (5-minute cache) or 2x (1-hour cache, from experiment_info).
     no_cache_cost prices every input token at the plain input price, so
-    cache_savings shows what caching saved (negative if writes outweighed reads).
+    the "Prompt caching savings by model" table shows what caching saved for each
+    model (negative if writes outweighed reads).
   * Calls with no usage reported, or that errored, can't be priced; they are
     counted and reported, never silently treated as free.
 """
@@ -114,6 +122,129 @@ def billable(bucket, model, source):
     return inp, out, cache_read, cache_write
 
 
+def price_bucket(bucket, model, source, prices, write_mult):
+    """(cost, no_cache_cost, (input, output, cache_read, cache_write), priced?) for one
+    by_model bucket or one logged call."""
+    inp, out, cache_read, cache_write = billable(bucket, model, source)
+    p = prices.get(model)
+    if p is None:
+        return 0.0, 0.0, (inp, out, cache_read, cache_write), False
+    read_price = p.get("cache_read", p["input"] * cache_read_multiplier(model))
+    write_price = p.get("cache_write", p["input"] * write_mult)
+    cost = (inp * p["input"] + out * p["output"] + cache_read * read_price + cache_write * write_price) / 1_000_000
+    no_cache = ((inp + cache_read + cache_write) * p["input"] + out * p["output"]) / 1_000_000
+    return cost, no_cache, (inp, out, cache_read, cache_write), True
+
+
+def new_model_tally():
+    return {"roles": set(), "calls": 0, "cache_read": 0, "cache_write": 0, "cost": 0.0, "no_cache_cost": 0.0}
+
+
+def add_to_model_tally(tally, model, role, cost, no_cache, cache_read, cache_write, calls=0):
+    t = tally.setdefault(model, new_model_tally())
+    t["roles"].add(str(role))
+    t["calls"] += calls
+    t["cache_read"] += cache_read
+    t["cache_write"] += cache_write
+    t["cost"] += cost
+    t["no_cache_cost"] += no_cache
+
+
+def print_cache_by_model(tally, title):
+    """Prompt-caching savings per model: what each model cost with caching vs
+    pricing all of its input at the plain input price."""
+    rows = [(m, t) for m, t in tally.items() if t["cost"] or t["no_cache_cost"]]
+    if not rows:
+        return
+    print(f"\n{title}")
+    print(f"  {'model':<24}{'roles':<18}{'cache read':>12}{'cache write':>13}"
+          f"{'with cache $':>14}{'no cache $':>12}{'saved $':>10}{'saved %':>9}")
+    for m, t in sorted(rows, key=lambda kv: -(kv[1]["no_cache_cost"] - kv[1]["cost"])):
+        saved = t["no_cache_cost"] - t["cost"]
+        pct = 100 * saved / t["no_cache_cost"] if t["no_cache_cost"] else 0.0
+        note = "" if (t["cache_read"] or t["cache_write"]) else "  (nothing cached)"
+        print(f"  {m[:23]:<24}{','.join(sorted(t['roles']))[:17]:<18}{t['cache_read']:>12}{t['cache_write']:>13}"
+              f"{t['cost']:>14.4f}{t['no_cache_cost']:>12.4f}{saved:>10.4f}{pct:>8.1f}%{note}")
+    if any(not (t["cache_read"] or t["cache_write"]) and m.lower().startswith("claude") for m, t in rows):
+        print("  (nothing cached) on a Claude model: caching was off for those runs, or the prompt prefix was "
+              "below the model's minimum cacheable length (4096 tokens for Claude Haiku 4.5).")
+
+
+def call_log_files(paths):
+    files = []
+    for p in paths:
+        if os.path.isdir(p):
+            files += glob.glob(os.path.join(p, "**", "token_calls_*.jsonl"), recursive=True)
+        elif p.endswith(".jsonl"):
+            files.append(p)
+    return sorted(set(files))
+
+
+def price_call_logs(files, prices, model_tally=None):
+    """Per-run totals over every logged call (and per-model totals into model_tally)."""
+    runs = {}
+    for f in files:
+        with open(f) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue      # a line cut off by a hard kill
+                rid = rec.get("run_id") or os.path.basename(f)
+                r = runs.setdefault(rid, {"file": os.path.relpath(f), "first": rec.get("ts"), "last": rec.get("ts"),
+                                          "calls": 0, "errors": 0, "unpriced_calls": 0, "missing": set(),
+                                          "models": set(), "roles": defaultdict(lambda: [0, 0, 0.0]),
+                                          "cost": 0.0, "no_cache_cost": 0.0,
+                                          "summary_written": False})
+                r["last"] = rec.get("ts") or r["last"]
+                r["calls"] += 1
+                if rec.get("error") or rec.get("input_tokens") is None:
+                    r["errors"] += int(bool(rec.get("error")))
+                    r["unpriced_calls"] += 1
+                    continue
+                model, source = str(rec.get("model")), rec.get("source", "api")
+                write_mult = 2.0 if rec.get("prompt_cache") == "1h" else 1.25
+                cost, nc, (inp, out, rd, wr), priced = price_bucket(rec, model, source, prices, write_mult)
+                if not priced and source != "local_tokenizer":
+                    r["missing"].add(model)
+                r["models"].add(f"{rec.get('role')}={model}")
+                role = r["roles"][rec.get("role", "?")]
+                role[0] += inp + rd + wr
+                role[1] += out
+                role[2] += cost
+                r["cost"] += cost
+                r["no_cache_cost"] += nc
+                if model_tally is not None and priced:
+                    add_to_model_tally(model_tally, model, rec.get("role", "?"), cost, nc, rd, wr, calls=1)
+    for rid, r in runs.items():
+        folder = os.path.dirname(r["file"])
+        r["summary_written"] = os.path.exists(os.path.join(folder, f"token_usage_{rid}.json"))
+    return runs
+
+
+def print_call_log_section(runs):
+    print("\nEvery logged call (token_calls_*.jsonl), by run -- compare this total with your provider's console:")
+    print(f"  {'run id':<22}{'started':<21}{'calls':>6}{'errors':>7}{'dir in/out':>20}{'builder in/out':>20}{'cost $':>10}")
+    for rid, r in sorted(runs.items(), key=lambda kv: str(kv[1]["first"])):
+        d, b = r["roles"].get("director", [0, 0, 0]), r["roles"].get("builder", [0, 0, 0])
+        print(f"  {rid:<22}{str(r['first'])[:19]:<21}{r['calls']:>6}{r['errors']:>7}"
+              f"{f'{d[0]}/{d[1]}':>20}{f'{b[0]}/{b[1]}':>20}{r['cost']:>10.4f}"
+              + ("" if r["summary_written"] else "  (no end-of-run summary: interrupted?)"))
+    total = sum(r["cost"] for r in runs.values())
+    calls = sum(r["calls"] for r in runs.values())
+    print(f"  All logged calls: {calls} calls in {len(runs)} run(s), ${total:.4f}")
+    missing = set().union(*(r["missing"] for r in runs.values())) if runs else set()
+    if missing:
+        print(f"  WARNING: no price for {sorted(missing)}; their calls cost $0 above.")
+    unpriced = sum(r["unpriced_calls"] for r in runs.values())
+    if unpriced:
+        print(f"  Note: {unpriced} logged call(s) errored or reported no usage (failed calls aren't billed).")
+    return total
+
+
 def price_game(game, prices, cache_ttl="5m"):
     """Cost breakdown for one game from its token_usage.by_model block."""
     usage = (game.get("token_usage") or {}).get("by_model")
@@ -123,28 +254,33 @@ def price_game(game, prices, cache_ttl="5m"):
     by_role = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
                                    "cache_write_tokens": 0, "cost": 0.0, "no_cache_cost": 0.0})
     missing, unpriced_calls = set(), 0
+    by_model = {}
     for key, bucket in usage.items():
         role, model, source = (key.split(" | ") + ["?", "?", "?"])[:3]
         unpriced_calls += bucket.get("errors", 0) + bucket.get("calls_without_usage", 0)
-        inp, out, cache_read, cache_write = billable(bucket, model, source)
+        cost, nc, (inp, out, cache_read, cache_write), priced = price_bucket(bucket, model, source, prices, write_mult)
         r = by_role[role]
         r["input_tokens"] += inp + cache_read + cache_write     # total input, cached or not
         r["output_tokens"] += out
         r["cache_read_tokens"] += cache_read
         r["cache_write_tokens"] += cache_write
-        p = prices.get(model)
-        if p is None:
+        if not priced:
             if source != "local_tokenizer" and (inp or out or cache_read or cache_write):
                 missing.add(model)
             continue
-        read_price = p.get("cache_read", p["input"] * cache_read_multiplier(model))
-        write_price = p.get("cache_write", p["input"] * write_mult)
-        r["cost"] += (inp * p["input"] + out * p["output"]
-                      + cache_read * read_price + cache_write * write_price) / 1_000_000
-        r["no_cache_cost"] += ((inp + cache_read + cache_write) * p["input"] + out * p["output"]) / 1_000_000
+        r["cost"] += cost
+        r["no_cache_cost"] += nc
+        bm = by_model.setdefault(model, {"roles": set(), "calls": 0, "cost": 0.0, "no_cache_cost": 0.0,
+                                         "cache_read": 0, "cache_write": 0})
+        bm["roles"].add(role)
+        bm["calls"] += bucket.get("calls", 0)
+        bm["cost"] += cost
+        bm["no_cache_cost"] += nc
+        bm["cache_read"] += cache_read
+        bm["cache_write"] += cache_write
     total = sum(r["cost"] for r in by_role.values())
     no_cache = sum(r["no_cache_cost"] for r in by_role.values())
-    return {"by_role": dict(by_role), "total": total, "no_cache_total": no_cache,
+    return {"by_role": dict(by_role), "by_model": by_model, "total": total, "no_cache_total": no_cache,
             "missing_prices": sorted(missing), "unpriced_calls": unpriced_calls}
 
 
@@ -159,10 +295,12 @@ def main():
 
     prices = load_prices(args.prices, args.price)
     files = game_files(args.paths)
-    if not files:
-        sys.exit("No game JSON files found.")
+    log_files = call_log_files(args.paths)
+    if not files and not log_files:
+        sys.exit("No game JSON files or token_calls_*.jsonl call logs found.")
 
     rows, skipped, missing_all = [], 0, set()
+    game_model_tally = {}
     for f in files:
         try:
             with open(f) as fh:
@@ -177,6 +315,9 @@ def main():
                 skipped += 1
                 continue
             missing_all |= set(cost["missing_prices"])
+            for m, bm in cost["by_model"].items():
+                add_to_model_tally(game_model_tally, m, ",".join(sorted(bm["roles"])), bm["cost"],
+                                   bm["no_cache_cost"], bm["cache_read"], bm["cache_write"], calls=bm["calls"])
             role = cost["by_role"]
             rows.append({
                 "file": os.path.relpath(f),
@@ -207,19 +348,24 @@ def main():
             })
 
     if not rows:
+        if log_files:
+            log_tally = {}
+            print_call_log_section(price_call_logs(log_files, prices, log_tally))
+            if any(t["cache_read"] or t["cache_write"] for t in log_tally.values()):
+                print_cache_by_model(log_tally, "Prompt caching savings by model (every logged call):")
+            print("(No finished games with token_usage found; the call logs above cover every logged call.)")
+            return
         sys.exit(f"No games with token_usage found ({skipped} games without it: run with the "
                  f"updated run_craft.py to record tokens).")
 
     # Per-game table
     show_cache = any(r["cache_read_tokens"] or r["cache_write_tokens"] or r["prompt_cache"] for r in rows)
     print(f"{'structure':<16}{'condition':<10}{'director':<24}{'builder':<24}{'turns':>6}"
-          f"{'dir $':>11}{'builder $':>11}{'total $':>11}"
-          + (f"{'no-cache $':>12}{'saved $':>10}" if show_cache else ""))
+          f"{'dir $':>11}{'builder $':>11}{'total $':>11}")
     for r in rows:
         print(f"{str(r['structure']):<16}{str(r['condition']):<10}{str(r['director_model'])[:23]:<24}"
               f"{str(r['builder_model'])[:23]:<24}"
               f"{str(r['turns']):>6}{r['director_cost']:>11.4f}{r['builder_cost']:>11.4f}{r['total_cost']:>11.4f}"
-              + (f"{r['no_cache_cost']:>12.4f}{r['cache_savings']:>10.4f}" if show_cache else "")
               + ("  (estimate)" if r["token_estimate"] else ""))
 
     # Totals by director model x builder model x condition
@@ -235,14 +381,7 @@ def main():
     grand = sum(r["total_cost"] for r in rows)
     print(f"\nAll {len(rows)} games: ${grand:.4f} (mean ${grand / len(rows):.4f} per game)")
     if show_cache:
-        nc = sum(r["no_cache_cost"] for r in rows)
-        rd = sum(r["cache_read_tokens"] for r in rows); wr = sum(r["cache_write_tokens"] for r in rows)
-        print(f"Prompt caching: ${nc:.4f} without caching -> ${grand:.4f} with it "
-              f"(saved ${nc - grand:.4f}, {100 * (nc - grand) / nc if nc else 0:.1f}%); "
-              f"cache read {rd} tokens, cache write {wr} tokens.")
-        if any(r["prompt_cache"] and not (r["cache_read_tokens"] or r["cache_write_tokens"]) for r in rows):
-            print("Note: some games ran with --prompt_cache but cached nothing; the prompt prefix is "
-                  "probably below the model's minimum cacheable length (4096 tokens for Claude Haiku 4.5).")
+        print_cache_by_model(game_model_tally, "Prompt caching savings by model (finished games):")
 
     if skipped:
         print(f"Note: {skipped} game(s) had no token_usage (recorded before token logging) and were skipped.")
@@ -252,6 +391,15 @@ def main():
     unpriced = sum(r["unpriced_calls"] for r in rows)
     if unpriced:
         print(f"Note: {unpriced} call(s) reported no usage or errored and could not be priced.")
+
+    if log_files:
+        log_tally = {}
+        log_total = print_call_log_section(price_call_logs(log_files, prices, log_tally))
+        if any(t["cache_read"] or t["cache_write"] for t in log_tally.values()):
+            print_cache_by_model(log_tally, "Prompt caching savings by model (every logged call):")
+        if log_total - grand > 0.0005:
+            print(f"  The call logs total ${log_total - grand:.4f} more than the finished games above: "
+                  f"calls from interrupted or unfinished games.")
 
     if args.csv:
         with open(args.csv, "w", newline="") as fh:
