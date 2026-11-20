@@ -1,0 +1,1425 @@
+Transcript,Turn,Failed Move,Clarify,Structure Placement,Side Placement,Overall Structure State,Group Agreement,Transcription
+0,1,False,N/A,False,False,False,yes,"D3: 1.  **Analyze Current Board State:**
+        -   D1 (Left): All empty.
+        -   D2 (Back): (0,2) has yellow (layer 0), yellow (layer 1), blue (layer 2).
+        -   D3 (Right):
+            -   Layer 0: (0,2) yellow, (1,2) yellow, (2,2) yellow.
+            -   Layer 1: (0,2) yellow, (1,2) green, (2,2) green.
+            -   Layer 2: (0,2) blue, (1,2) yellow, (2,2) green.
+        -   Note: The board state JSON keys are (x,y).
+            -   (0,2) is D3's bottom-left (far back right).
+            -   (1,2) is D3's middle.
+            -   (2,2) is D3's bottom-right (front right).
+            -   Wait, let's re-verify the coordinate system based on the prompt's ""Spatial Orientation"".
+            -   Prompt: ""(0,0) (0,1) (0,2) ← far/back row"", ""(2,0) (2,1) (2,2) ← near/front row"".
+            -   D3 is to the right of the builder. D3 sees (0,2), (1,2), (2,2).
+            -   D3's view is the right wall.
+            -   D3's ""left"" in their view corresponds to the back row (0,2) in global coords? Or is it the column index?
+            -   Let's check the prompt's example for D2. D2 sees (0,0), (0,1), (0,2). D2 is across. D2's ""left"" is (0,0).
+            -   D3 sees (0,2), (1,2), (2,2). D3's ""left"" is (0,2). D3's ""right"" is (2,2).
+            -   So D3's ""bottom left"" is (
+D2: 1.  **Analyze the Board State:**
+        -   D1 (Left): row_0=, row_1=, row_2= -> Empty.
+        -   D2 (Across/Back): row_0=, row_1=, row_2= -> Only the far right column (from D2's view) has blocks.
+        -   D3 (Right): row_0=, row_1=, row_2= -> The entire right side is built.
+    
+    2.  **Analyze D2's Target View:**
+        -   row_0 (Bottom): 
+        -   row_1 (Middle): 
+        -   row_2 (Top): 
+    
+    3.  **Map D2's View to Coordinates (D2's Perspective):**
+        -   D2 sits across from the builder.
+        -   D2's ""left"" is the builder's ""right"" (D3's side).
+        -   D2's ""right"" is the builder's ""left"" (D1's side).
+        -   D2's ""front"" is the builder's ""back"".
+        -   D2's ""back"" is the builder's ""front"".
+        -   Wait, let's re-read the prompt's spatial orientation carefully.
+        -   ""From where the builder sits, D1 is to their left, D2 is across from them, and D3 is to their right.""
+        -   ""From left to right, you see cells (0,0), (0,1), (0,2) across all layers."" -> This implies D2 sees the grid from the ""back"" looking ""forward"" (or vice versa depending on definition).
+        -   Let's check the example analysis in the prompt: ""My target view specifies that layer 0 should have a blue small block in my bottom left corner (0"
+1,2,N/A,True,N/A,N/A,N/A,N/A,"D1: 1.  **Analyze Current Board State:**
+        -   D1 (Left): (0,0) has yellow (layer 0), yellow (layer 1), red (layer 2). (0,1) has yellow (layer 0), yellow (layer 1), red (layer 2). (0,2) is empty.
+        -   D2 (Back): (0,2) has yellow (layer 0), yellow (layer 1), blue (layer 2). (1,2) has yellow (layer 0), yellow (layer 1), blue (layer 2). (2,2) has yellow (layer 0), yellow (layer 1), blue (layer 2).
+        -   D3 (Right): (0,2) has yellow (layer 0), yellow (layer 1), blue (layer 2). (1,2) has yellow (layer 0), yellow (layer 1), blue (layer 2). (2,2) has yellow (layer 0), yellow (layer 1), blue (layer 2).
+        -   Wait, the board state JSON keys are (x,y).
+            -   (0,0) is D1's bottom-left (far back left).
+            -   (0,1) is D1's middle.
+            -   (0,2) is D1's bottom-right (front left).
+            -   (1,0) is D2's bottom-left (far back middle).
+            -   (1,1) is D2's middle.
+            -   (1,2) is D2's bottom-right (front middle).
+            -   (2,0) is D3's bottom-left (far back right).
+            -   (2,1) is D3's middle.
+            -   (2,2) is D3's bottom-right (front right).
+        -   Let's re-verify the coordinate system based on the prompt's ""Spatial Orientation"".
+        -   Prompt: ""(0,0) (0,1) (0,2) ← far/back row"", ""(2,0) (2,1) (2,2) ← near/front row"".
+        -   D1 is to the
+D2: 1.  **Analyze the Board State:**
+        -   D1 (Left): (0,0) has yellow (layer 0), (1,0) has yellow (layer 0).
+        -   D2 (Back): (0,2) has yellow (layer 0), yellow (layer 1), blue (layer 2).
+        -   D3 (Right):
+            -   Layer 0: (0,2) yellow, (1,2) yellow, (2,2) yellow.
+            -   Layer 1: (0,2) yellow, (1,2) green, (2,2) green.
+            -   Layer 2: (0,2) blue, (1,2) yellow, (2,2) green.
+        -   Note: The board state JSON keys are (x,y).
+            -   (0,2) is D3's bottom-left (far back right).
+            -   (1,2) is D3's middle.
+            -   (2,2) is D3's bottom-right (front right).
+            -   Wait, let's re-verify the coordinate system based on the prompt's ""Spatial Orientation"".
+            -   Prompt: ""(0,0) (0,1) (0,2) ← far/back row"", ""(2,0) (2,1) (2,2) ← near/front row"".
+            -   D3 is to the right of the builder. D3 sees (0,2), (1,2), (2,2).
+            -   D3's view is the right wall.
+            -   D3's ""left"" in their view corresponds to the back row (0,2) in global coords? Or is it the column index?
+            -   Let's check the prompt's example for D2. D2 sees (0,0), (0,1), (0,2). D2 is across. D2's ""left"" is (0,0).
+            -   D3 sees (0,2), (1,2), (2,2). D3's ""left"" is (0,2). D3's ""right"
+2,3,False,N/A,False,False,False,yes,"D1: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""yellow"", ""size"": 2}, {""color"": ""yellow"", ""size"": 2}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""blue"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}], ""row_1"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""green"", ""size"": 1}], ""row_2"": [{""color"": ""blue"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""green"", ""size"": 1}, {""color"": ""red"", ""size"": 1},
+D3: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""yellow"", ""size"": 2}, {""color"": ""yellow"", ""size"": 2}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}], ""row_1"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""blue"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}], ""row_1"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""green"", ""size"": 1}], ""row_2"": [{""color"": ""blue"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1},"
+3,4,False,N/A,False,False,False,yes,"D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Empty, Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Empty, Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0,0) (0,1)
+D1: [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    ### CURRENT BOARD STATE (full — what is actually built right now)
+    {""D1"": {""row_0"": [{""color"": ""yellow"", ""size"": 2}, {""color"": ""yellow"", ""size"": 2}, {""color"": ""none"", ""size"": 1}], ""row_1"": [{""color"": ""red"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}]}, ""D2"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}], ""row_1"": [{""color"": ""red"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}], ""row_2"": [{""color"": ""none"", ""size"": 1}, {""color"": ""none"", ""size"": 1}, {""color"": ""blue"", ""size"": 1}]}, ""D3"": {""row_0"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}], ""row_1"": [{""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}, {""color"": ""green"", ""size"": 1}], ""row_2"": [{""color"": ""blue"", ""size"": 1}, {""color"": ""yellow"", ""size"": 1}, {""color"": ""green"", ""size"": 1}]}}
+
+    ### YOUR TARGET VIEW (what YOU need the structure to look like from your side)
+    {""row_0"": [{""color"": ""green"", ""size"": 1}, {""color"": ""red"", ""size"": 1},"
+4,5,N/A,True,N/A,N/A,N/A,N/A,"D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+5,6,N/A,True,N/A,N/A,N/A,N/A,"D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+6,7,N/A,True,N/A,N/A,N/A,N/A,"D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+7,8,False,N/A,True,True,False,yes,"D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+8,9,False,N/A,False,False,False,yes,"D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+9,10,N/A,True,N/A,N/A,N/A,N/A,"D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+10,11,N/A,True,N/A,N/A,N/A,N/A,"D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+11,12,False,N/A,False,False,False,yes,"D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+12,13,N/A,True,N/A,N/A,N/A,N/A,"D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+13,14,N/A,True,N/A,N/A,N/A,N/A,"D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+14,15,False,N/A,False,False,False,yes,"D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+15,16,N/A,True,N/A,N/A,N/A,N/A,"D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+16,17,False,N/A,False,False,False,yes,"D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+17,18,N/A,True,N/A,N/A,N/A,N/A,"D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+18,19,N/A,True,N/A,N/A,N/A,N/A,"D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D3: The user wants me to act as Director D3 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D3):**
+- row_0 (Bottom): Yellow (size 1), Yellow (size 1), Yellow (size 1).
+- row_1 (Middle): Green (size 1), Green (size 1), Yellow (size 1).
+- row_2 (Top): Blue (size 1), Yellow (size 1), Green (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D3 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"
+19,20,False,N/A,False,False,False,yes,"D2: The user wants me to act as Director D2 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D2):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Green (size 1).
+- row_1 (Middle): Yellow (size 1), Blue (size 1), Blue (size 1).
+- row_2 (Top): Blue (size 1), Blue (size 1), Red (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D2 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0
+D1: The user wants me to act as Director D1 in a collaborative LEGO construction task.
+I need to analyze the current board state, my target view, and the conversation history to determine what I should say next.
+
+**Current Board State:**
+- D1 (Left):
+    - row_0: Yellow (size 2), Yellow (size 2), Empty.
+    - row_1: Red (size 1), Empty, Empty.
+    - row_2: Empty, Empty, Empty.
+- D2 (Back):
+    - row_0: Yellow (size 1), Empty, Yellow (size 1).
+    - row_1: Red (size 1), Empty, Yellow (size 1).
+    - row_2: Empty, Empty, Blue (size 1).
+- D3 (Right):
+    - row_0: Yellow (size 1), Yellow (size 1), Yellow (size 1).
+    - row_1: Yellow (size 1), Green (size 1), Green (size 1).
+    - row_2: Blue (size 1), Yellow (size 1), Green (size 1).
+
+**My Target View (D1):**
+- row_0 (Bottom): Green (size 1), Red (size 1), Red (size 1).
+- row_1 (Middle): Blue (size 1), Orange (size 1), Green (size 1).
+- row_2 (Top): Red (size 1), Red (size 1), Orange (size 1).
+
+**Wait, I need to check the coordinate mapping again.**
+The prompt says:
+""From left to right, you see cells (0,0), (0,1), (0,2) across all layers.""
+This implies D1 sees the grid columns 0, 1, 2.
+D1 is to the left of the builder. D3 is to the right. D2 is across.
+Usually, in these tasks:
+- D1 sees the Left Wall (x=0 column).
+- D2 sees the Back Wall (y=0 row? or x=0 column?).
+- D3 sees the Right Wall (x=2 column).
+
+Let's look at the ""Spatial Orientation"" section:
+""(0"

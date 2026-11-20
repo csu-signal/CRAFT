@@ -659,10 +659,11 @@ if __name__ == "__main__":
 
     # Full dataset
     print(f"\n{'='*60}")
-    print("Generating dataset of 100 structures...")
-    dataset = generate_dataset(n=10000, seed=42)
+    n = 20
+    print(f"Generating dataset of {n} structures...")
+    dataset = generate_dataset(n=n, seed=42)
     print(f"Generated {len(dataset)} valid structures")
 
-    with open("structures_dataset_v3.json", "w") as f:
+    with open("structures_dataset_v2.json", "w") as f:
         json.dump(dataset, f, indent=2)
     print("Saved to structures_dataset_v2.json")

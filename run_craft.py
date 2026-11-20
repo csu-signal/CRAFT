@@ -12,15 +12,38 @@
 # python run_craft.py --mode local --director qwen-7b --no_tools --structures 0,1,2
 
 # # Custom output dir
-# python run_craft.py --mode api --director gpt-4o --output my_results --turns 15# 
+# python run_craft.py --mode api --director gpt-4o --output my_results --turns 15#
+
+# # Utterance-selection conditions (full games), see "UTTERANCE SELECTION" below:
+# #   baseline -- the Builder hears every director (the original game)
+# #   policy   -- the Builder hears only the policy's chosen director
+# #   random   -- the Builder hears one director drawn uniformly at random
+# # Every turn of every game logs all three selections (the policy and random
+# # picks are computed as "shadow" choices even when they don't drive the game).
+# python run_craft.py --mode api --director gpt-4o-mini --structures 0,1,2 --turns 20 \
+#     --conditions baseline,policy,random --policy_path /path/to/policy.pt
+
+# # Token estimate (no API calls): every builder/director call is answered by the
+# # local Qwen model in token_estimator.py (next to this script) and its tokens are
+# # recorded. Use the API model names you plan to pay for; results go to a separate
+# # "_token_estimate" folder and the totals to token_estimate.json there.
+# python run_craft.py --mode api --director claude-haiku-4-5 --builder claude-haiku-4-5 \
+#     --structures 0 --turns 20 --conditions baseline,policy,random \
+#     --policy_path /path/to/policy.pt --token_estimate
+# # Same, with the estimator served by Ollama (no 30 GB download; runs on a laptop):
+# #   ollama pull qwen2.5:14b-instruct && ollama serve
+# python run_craft.py ... --token_estimate --estimate_backend ollama
 
 import os
+import re
 import json
 import copy
 import random
 from datetime import datetime
+from pathlib import Path
 from tqdm import tqdm
-from typing import Dict
+from typing import Dict, List, Optional
+from collections import defaultdict
 import pandas as pd
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -36,11 +59,13 @@ from agents.builder_agent import BuilderAgent, BuilderType
 from agents.oracle import enumerate_correct_actions
 import inspect
 import time
+import hashlib
+from types import SimpleNamespace
 import sys
 
 print("EnhancedGameState from:", inspect.getfile(EnhancedGameState))
 print("get_director_views sig:", inspect.signature(EnhancedGameState.get_director_views))
- 
+
 print([m for m in dir(EnhancedGameState) if not m.startswith("_")])
 
 # ─────────────────────────────────────────
@@ -76,6 +101,671 @@ def chair_history_only_directors(conversation_history: list[str], max_chars=2000
     lines = [ln for ln in conversation_history if ln.startswith(("D1:", "D2:", "D3:"))]
     s = "\n".join(lines)
     return s[-max_chars:]
+
+
+# ─────────────────────────────────────────
+# UTTERANCE SELECTION (baseline / policy / random)
+# ─────────────────────────────────────────
+#
+# Each turn, after the directors have spoken, three selections are computed:
+#   baseline -- every speaking director (what the original game gives the Builder)
+#   policy   -- the policy's pick (only if a policy is loaded)
+#   random   -- a uniform draw from the speaking directors
+# The game's --conditions value decides which one the Builder actually hears;
+# all three are logged in turn_data['utterance_selection'] regardless.
+#
+# Directors always hear each other: conversation_history still gets every
+# director's message. Only the Builder's input is restricted.
+
+DIRECTOR_IDS = ("D1", "D2", "D3")
+CONDITIONS = ("baseline", "policy", "random")
+# Older name for 'baseline', still accepted on the command line.
+CONDITION_ALIASES = {"all": "baseline"}
+SILENT_MESSAGES = {"", "no message provided", "none", "null", "n/a"}
+
+
+def is_silent_message(text) -> bool:
+    return (str(text or "")).strip().lower() in SILENT_MESSAGES
+
+
+def random_pick(seed, *identity, pool: List[str]) -> Optional[str]:
+    """
+    Uniform draw from `pool`, seeded from --random_seed plus the identity of the
+    decision (structure, run, turn). Uses its own random.Random, so it never
+    touches the global RNG that orders the directors, and the draw for a given
+    turn is the same in every condition.
+    """
+    if not pool:
+        return None
+    key = "|".join(str(x) for x in (seed,) + identity)
+    return random.Random(key).choice(sorted(pool))
+
+
+def load_policy_scorer(policy_path, code_dir=None, feature_mode=None, feature_tier=None,
+                       allow_silent=False):
+    """
+    Load the trained index policy with the same PolicyScorer the multi-turn
+    rollout harness uses (run_multiTurn_builder_local.py, in this folder), so
+    directors are scored identically in both places.
+    """
+    try:
+        from run_multiTurn_builder_local import PolicyScorer, find_policy_code_dir
+    except Exception as e:  # noqa: BLE001
+        sys.exit(f"[policy] Could not import PolicyScorer from run_multiTurn_builder_local.py ({e}). "
+                 f"Run from the CRAFT folder that contains that file.")
+    p = Path(policy_path)
+    return PolicyScorer(
+        p, find_policy_code_dir(p, Path(code_dir) if code_dir else None),
+        feature_mode=feature_mode, feature_tier=feature_tier, allow_silent=allow_silent,
+    )
+
+
+class PolicySelector:
+    """
+    Per-game wrapper around PolicyScorer. Keeps each director's ArmState
+    history for THIS game and scores D1-D3 each turn exactly as the policy was
+    trained: history + the current turn's candidate arm -> encode -> argmax.
+
+    score_turn() is called after the directors speak (before the Builder
+    moves); commit() is called once the turn's outcome is known, adding the
+    current turn to the history with its after-board and "followed" tag.
+    """
+
+    def __init__(self, scorer, target_structure, structure_id, model_combo):
+        from run_multiTurn_builder_local import make_sat_fn
+        self.scorer = scorer
+        self.sat_fn = make_sat_fn(target_structure)
+        self.structure_id = structure_id
+        self.combo = model_combo
+        self.hist = {d: [] for d in DIRECTOR_IDS}
+        self._pending = None
+
+    def score_turn(self, turn_number, board_before, messages: Dict[str, str], speaking: List[str]):
+        before = copy.deepcopy(board_before)
+        self._pending = {
+            d: self.scorer.make_arm(d, messages.get(d, ""), turn_number, self.structure_id,
+                                    self.combo, before, before, tag=0,
+                                    sat=self.sat_fn(d, before))
+            for d in DIRECTOR_IDS
+        }
+        if not speaking:
+            return None, None, None
+        scores = self.scorer.score({d: self.hist[d] + [self._pending[d]] for d in DIRECTOR_IDS})
+        chosen, raw = self.scorer.choose(scores, speaking)
+        return chosen, raw, scores
+
+    def commit(self, followed: Optional[str], board_after, move_failed: bool):
+        """followed: the director the Builder heard alone (policy/random
+        conditions), or None when it heard everyone (tag 0, as for CRAFT
+        history in the rollout harness)."""
+        if self._pending is None:
+            return
+        Belief = self.scorer.arm_mod.ConstraintBelief
+        for d, arm in self._pending.items():
+            arm.constraint = Belief(0 if followed is None else (1 if d == followed else -1))
+            arm.structureAfter = copy.deepcopy(board_after)
+            arm.moveFailed = "True" if move_failed else ""
+            self.hist[d].append(arm)
+        self._pending = None
+
+
+# ─────────────────────────────────────────
+# TOKEN ESTIMATE (--token_estimate)
+# ─────────────────────────────────────────
+#
+# Every agent keeps its model client in `.client`, whichever provider it routes
+# to (OpenAI, Anthropic, Gemini's OpenAI endpoint, or Ollama). For an estimate,
+# those clients are replaced with EstimatorClients from token_estimator.py, so
+# the calls themselves are unchanged and nothing reaches an API or Ollama.
+# Gemini directors build a new google.genai Client on every call, so that class
+# is replaced in __main__. Each recorded call is tagged with the role, director
+# model and condition, so the totals can be priced per model.
+
+ESTIMATE_DUMMY_KEYS = ("OPENAI_API_KEY", "CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
+
+
+def make_estimator_client(est, role):
+    """An EstimatorClient that tags each call it records with `role`."""
+    from token_estimator import EstimatorClient
+
+    class TaggedEstimatorClient(EstimatorClient):
+        def _tag(self, response):
+            with self.est.lock:
+                self.est.calls[-1]["role"] = role
+            return response
+
+        def _openai_create(self, *a, **k):
+            return self._tag(super()._openai_create(*a, **k))
+
+        def _anthropic_create(self, *a, **k):
+            return self._tag(super()._anthropic_create(*a, **k))
+
+        def _gemini_generate(self, *a, **k):
+            return self._tag(super()._gemini_generate(*a, **k))
+
+    return TaggedEstimatorClient(est)
+
+
+def attach_estimator(est, builder_agent, director_agents, common_ground_agent=None):
+    """Point every agent at the estimator instead of its real client."""
+    builder_agent.client = make_estimator_client(est, "builder")
+    for agent in director_agents.values():
+        if getattr(agent, "use_api", True):
+            agent.client = make_estimator_client(est, "director")
+    if common_ground_agent is not None and hasattr(common_ground_agent, "client"):
+        common_ground_agent.client = make_estimator_client(est, "common_ground")
+
+
+def summarize_estimate(est) -> Dict:
+    """Totals overall, by role, and by director model x condition x role,
+    scaled by token_estimator.CORRECTION like est.report()."""
+    from token_estimator import CORRECTION
+
+    def empty():
+        return {"calls": 0, "truncated_calls": 0, "input_tokens": 0, "output_tokens": 0}
+
+    by_role, by_group = defaultdict(empty), defaultdict(empty)
+    for c in est.calls:
+        role = c.get("role", "unknown")
+        group = f"{c.get('director_model', '?')} | {c.get('condition', '?')} | {role}"
+        for bucket in (by_role[role], by_group[group]):
+            bucket["calls"] += 1
+            bucket["truncated_calls"] += int(c["truncated"])
+            bucket["input_tokens"] += c["input_tokens"]
+            bucket["output_tokens"] += c["output_tokens"]
+    for bucket in list(by_role.values()) + list(by_group.values()):
+        bucket["input_tokens"] = round(bucket["input_tokens"] * CORRECTION)
+        bucket["output_tokens"] = round(bucket["output_tokens"] * CORRECTION)
+    return {"totals": est.report(), "by_role": dict(by_role),
+            "by_director_model_condition_role": dict(sorted(by_group.items()))}
+
+
+# ─────────────────────────────────────────
+# TOKEN USAGE (every run, real or --token_estimate)
+# ─────────────────────────────────────────
+#
+# Every model call made by a director or the builder is recorded with its input
+# and output tokens, as reported by the response itself:
+#   OpenAI / Ollama / Gemini-OpenAI  usage.prompt_tokens, usage.completion_tokens
+#   Anthropic                        usage.input_tokens, usage.output_tokens (+ cache)
+#   google-genai                     usage_metadata.prompt_token_count, candidates_token_count
+# Each agent's client is wrapped in a UsageRecordingClient, so the agents'
+# own call code is unchanged. In --token_estimate runs the wrapped client is
+# the EstimatorClient, whose responses carry the local model's counts; those
+# records are marked source="estimate" and also get CORRECTION-scaled values,
+# the same numbers token_estimate.json reports. Local transformers directors
+# (--mode local) have no client; their tokens are counted with their own
+# tokenizer (source="local_tokenizer", prompt text without chat-template overhead).
+#
+# Saved: per turn (turn_data['token_usage']: every call + totals), per game
+# (game_results['token_usage']), as CSV columns, and for the whole run in
+# token_usage.json.
+
+_USAGE_STYLES = {("chat", "completions", "create"): "openai",
+                 ("messages", "create"): "anthropic",
+                 ("models", "generate_content"): "gemini"}
+
+
+class TokenLedger:
+    """
+    All recorded model calls, tagged with the context they were made in.
+
+    Every call is also appended to a JSONL file (one JSON object per line) the
+    moment it completes, so interrupted runs (Ctrl+C, crashes) are still fully
+    logged. Each line carries the run id, a timestamp, the role/director/turn
+    context, the director and builder models, and the token counts.
+    """
+
+    def __init__(self):
+        self.records = []
+        self.context = {}
+        self.base = {}            # run-level tags: run_id, director_model, builder_model
+        self.jsonl_path = None
+
+    def set_context(self, **ctx):
+        self.context = ctx
+
+    def set_base(self, **tags):
+        self.base.update(tags)
+
+    def open_log(self, path):
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        self.jsonl_path = path
+
+    def record(self, rec):
+        rec = {**self.base, **self.context, **rec,
+               "ts": datetime.now().isoformat(timespec="seconds")}
+        self.records.append(rec)
+        if self.jsonl_path:
+            # One line per call, written and flushed immediately.
+            with open(self.jsonl_path, "a") as f:
+                f.write(json.dumps(rec, default=str) + "\n")
+        return rec
+
+
+TOKEN_LEDGER = TokenLedger()
+# Unique per run (set in __main__): goes into every output file name so runs
+# never overwrite each other's logs.
+RUN_ID = None
+
+
+def _get(obj, *names):
+    for n in names:
+        if obj is None:
+            return None
+        obj = obj.get(n) if isinstance(obj, dict) else getattr(obj, n, None)
+    return obj
+
+
+def _int(v):
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def usage_from_response(resp, style):
+    """Token counts and stop reason from an OpenAI / Anthropic / Gemini response."""
+    if style == "anthropic":
+        u = _get(resp, "usage")
+        return {"input_tokens": _int(_get(u, "input_tokens")),
+                "output_tokens": _int(_get(u, "output_tokens")),
+                "cache_read_input_tokens": _int(_get(u, "cache_read_input_tokens")),
+                "cache_creation_input_tokens": _int(_get(u, "cache_creation_input_tokens")),
+                "finish_reason": _get(resp, "stop_reason")}
+    if style == "gemini":
+        u = _get(resp, "usage_metadata")
+        cands = _get(resp, "candidates") or []
+        return {"input_tokens": _int(_get(u, "prompt_token_count")),
+                "output_tokens": _int(_get(u, "candidates_token_count")),
+                "thinking_tokens": _int(_get(u, "thoughts_token_count")),
+                "finish_reason": str(_get(cands[0], "finish_reason")) if cands else None}
+    u = _get(resp, "usage")
+    choices = _get(resp, "choices") or []
+    return {"input_tokens": _int(_get(u, "prompt_tokens")),
+            "output_tokens": _int(_get(u, "completion_tokens")),
+            "cache_read_input_tokens": _int(_get(u, "prompt_tokens_details", "cached_tokens")),
+            "thinking_tokens": _int(_get(u, "completion_tokens_details", "reasoning_tokens")),
+            "finish_reason": _get(choices[0], "finish_reason") if choices else None}
+
+
+# ─────────────────────────────────────────
+# PROMPT CACHING for Claude models (--prompt_cache)
+# ─────────────────────────────────────────
+#
+# https://platform.claude.com/docs/en/build-with-claude/prompt-caching
+# Both prompts start with a long block that is identical on every call by the
+# same agent in a game, followed by the board, target and conversation, which
+# change every turn. The cache breakpoint therefore goes on the last stable
+# block: the prompt is sent as two text blocks split at the line containing
+# CURRENT BOARD STATE, with cache_control on the first. (Automatic caching would
+# put the breakpoint on the last block, which changes every turn: a 1.25x write
+# on every call and never a read.) The text the model sees is unchanged.
+#
+#   * Claude directors (native Anthropic SDK): messages.create gets the split.
+#   * Claude builder: the OpenAI-compatible endpoint can't cache, so with
+#     --prompt_cache its plain calls (no tools) go through the native API
+#     with the same split; tool-using calls stay on the compatible endpoint.
+#   * --token_estimate: no API call is made, so caching is SIMULATED: a call
+#     reads if the same prefix (same model) was already sent earlier in the same
+#     game, otherwise it writes; prefixes shorter than the model's minimum
+#     cacheable length are not cached. Calls within a game are assumed to be
+#     less than the cache TTL apart.
+# Usage fields follow the API: input_tokens = uncached input only, plus
+# cache_read_input_tokens and cache_creation_input_tokens; input_tokens_total
+# is their sum.
+
+PROMPT_CACHE = {"enabled": False, "ttl": "5m"}
+CACHE_SPLIT_MARKER = "CURRENT BOARD STATE"
+SIM_PROMPT_CACHE = set()          # simulated cache entries, reset every game
+_NATIVE_ANTHROPIC = {"client": None, "drop_temperature": False}
+
+
+# Minimum cacheable prompt length per model, from the prompt-caching docs
+# (Claude API). Shorter prompts are processed without caching, silently.
+CLAUDE_CACHE_MINIMUM = [
+    (r"haiku-4-5|opus-4-6|opus-4-5", 4096),
+    (r"opus-4-7|mythos-preview", 2048),
+    (r"opus-4-8|sonnet-5$|sonnet-4-6|sonnet-4-5|opus-4-1|opus-4$|sonnet-4$", 1024),
+    (r"fable|mythos|opus-5|sonnet-5-5|haiku-5-5", 512),
+]
+
+
+def claude_cache_minimum(model: str) -> int:
+    m = re.sub(r"-\d{8}$", "", (model or "").lower().strip())   # drop a -YYYYMMDD snapshot suffix
+    for pattern, minimum in CLAUDE_CACHE_MINIMUM:
+        if re.search(pattern, m):
+            return minimum
+    return 1024   # unknown Claude model: a middle value
+
+
+def split_cacheable(text):
+    """(stable prefix, rest) split at the start of the line containing the
+    marker, or None if the marker isn't there (then nothing is cached)."""
+    if not isinstance(text, str):
+        return None
+    i = text.find(CACHE_SPLIT_MARKER)
+    if i <= 0:
+        return None
+    line_start = text.rfind("\n", 0, i) + 1
+    if line_start <= 0:
+        return None
+    return text[:line_start], text[line_start:]
+
+
+def _cache_control():
+    cc = {"type": "ephemeral"}
+    if PROMPT_CACHE["ttl"] == "1h":
+        cc["ttl"] = "1h"
+    return cc
+
+
+def _first_user_index(messages):
+    return next((i for i, m in enumerate(messages)
+                 if isinstance(m, dict) and m.get("role") == "user"), None)
+
+
+def cached_anthropic_kwargs(kwargs):
+    """Anthropic messages.create kwargs with the first user prompt split and
+    marked for caching, plus the stable prefix text (or None)."""
+    msgs = list(kwargs.get("messages") or [])
+    i = _first_user_index(msgs)
+    parts = split_cacheable(msgs[i].get("content")) if i is not None else None
+    if not parts:
+        return kwargs, None
+    prefix, rest = parts
+    msgs[i] = {**msgs[i], "content": [{"type": "text", "text": prefix, "cache_control": _cache_control()},
+                                      {"type": "text", "text": rest}]}
+    system = kwargs.get("system")
+    sys_text = system if isinstance(system, str) else ""
+    return {**kwargs, "messages": msgs}, sys_text + "\n" + prefix
+
+
+def stable_prefix_text(style, kwargs):
+    """The stable prefix a call would cache (system + prompt up to the board)."""
+    msgs = list(kwargs.get("messages") or [])
+    i = _first_user_index(msgs)
+    parts = split_cacheable(msgs[i].get("content")) if i is not None else None
+    if not parts:
+        return None
+    if style == "anthropic":
+        system = kwargs.get("system") if isinstance(kwargs.get("system"), str) else ""
+    else:
+        system = "\n".join(str(m.get("content")) for m in msgs
+                           if isinstance(m, dict) and m.get("role") == "system")
+    return system + "\n" + parts[0]
+
+
+def native_anthropic_chat(kwargs):
+    """
+    Run an OpenAI-style chat call (no tools) through the native Anthropic API
+    with the cache breakpoint, and return (OpenAI-shaped response, Anthropic
+    response). Used for the Claude builder, whose OpenAI-compatible endpoint
+    can't cache.
+    """
+    import anthropic
+    if _NATIVE_ANTHROPIC["client"] is None:
+        key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+        _NATIVE_ANTHROPIC["client"] = anthropic.Anthropic(api_key=key)
+    client = _NATIVE_ANTHROPIC["client"]
+    msgs = kwargs.get("messages") or []
+    system = "\n".join(str(m["content"]) for m in msgs if m.get("role") == "system")
+    turns = [{"role": m["role"], "content": m["content"] if isinstance(m["content"], str) else str(m["content"])}
+             for m in msgs if m.get("role") in ("user", "assistant")]
+    a_kwargs = {"model": kwargs["model"], "max_tokens": kwargs.get("max_tokens") or 1024,
+                "messages": turns}
+    if system:
+        a_kwargs["system"] = system
+    if kwargs.get("temperature") is not None and not _NATIVE_ANTHROPIC["drop_temperature"]:
+        a_kwargs["temperature"] = kwargs["temperature"]
+    a_kwargs, _ = cached_anthropic_kwargs(a_kwargs)
+    if "temperature" in a_kwargs and _NATIVE_ANTHROPIC.get("temperature_via_extra_body"):
+        a_kwargs["extra_body"] = {"temperature": a_kwargs.pop("temperature")}
+    while True:
+        try:
+            a_resp = client.messages.create(**a_kwargs)
+            break
+        except TypeError as e:
+            # The installed SDK doesn't accept `temperature` as a keyword (the
+            # call never reached the API). Send it in the request body instead,
+            # so the model still gets the Builder's temperature.
+            if "temperature" in a_kwargs and "temperature" in str(e):
+                _NATIVE_ANTHROPIC["temperature_via_extra_body"] = True
+                a_kwargs["extra_body"] = {**a_kwargs.get("extra_body", {}), "temperature": a_kwargs.pop("temperature")}
+                print("  [builder] native API: SDK has no temperature keyword; sending it via extra_body")
+                continue
+            raise
+        except anthropic.BadRequestError as e:
+            # The model itself rejects a non-default temperature: drop it for the run.
+            body_temp = "temperature" in (a_kwargs.get("extra_body") or {})
+            if ("temperature" in a_kwargs or body_temp) and "temperature" in str(e).lower():
+                _NATIVE_ANTHROPIC["drop_temperature"] = True
+                a_kwargs.pop("temperature", None)
+                if body_temp:
+                    a_kwargs["extra_body"].pop("temperature")
+                    if not a_kwargs["extra_body"]:
+                        a_kwargs.pop("extra_body")
+                print("  [builder] native API: model rejects temperature; using its default for the rest of the run")
+                continue
+            raise
+    text = "".join(getattr(b, "text", "") for b in (a_resp.content or []) if getattr(b, "type", None) == "text")
+    u = a_resp.usage
+    total_in = sum(int(getattr(u, k, 0) or 0) for k in
+                   ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    oa = SimpleNamespace(
+        choices=[SimpleNamespace(index=0, finish_reason="length" if a_resp.stop_reason == "max_tokens" else "stop",
+                                 message=SimpleNamespace(role="assistant", content=text, tool_calls=None))],
+        usage=SimpleNamespace(prompt_tokens=total_in, completion_tokens=int(u.output_tokens or 0),
+                              total_tokens=total_in + int(u.output_tokens or 0)))
+    return oa, a_resp
+
+
+def simulate_cache(rec, fn, style, kwargs):
+    """Estimate runs: split the recorded input into uncached / cache read /
+    cache write as the API would, using the estimator's own token counts."""
+    prefix = stable_prefix_text(style, kwargs)
+    est = getattr(getattr(fn, "__self__", None), "est", None)
+    if prefix is None or est is None or rec.get("input_tokens") is None:
+        return
+    try:
+        from token_estimator import CORRECTION
+    except Exception:  # noqa: BLE001
+        CORRECTION = 1.0
+    try:
+        n_raw = min(int(est.count(prefix)), int(rec["input_tokens"]))
+    except Exception:  # noqa: BLE001
+        return
+    n_corr = round(n_raw * CORRECTION)
+    model = str(kwargs.get("model") or "")
+    if n_corr < claude_cache_minimum(model):
+        rec["cache_skipped"] = f"prefix {n_corr} < minimum {claude_cache_minimum(model)} tokens"
+        return
+    key = (model, hashlib.sha1(prefix.encode("utf-8")).hexdigest())
+    field = "cache_read_input_tokens" if key in SIM_PROMPT_CACHE else "cache_creation_input_tokens"
+    SIM_PROMPT_CACHE.add(key)
+    rec[field] = n_raw
+    rec["input_tokens"] = rec["input_tokens"] - n_raw
+    rec[f"{field}_corrected"] = n_corr
+    if rec.get("input_tokens_corrected") is not None:
+        rec["input_tokens_corrected"] = max(0, rec["input_tokens_corrected"] - n_corr)
+    rec["cache_simulated"] = True
+
+
+def _add_input_totals(rec):
+    """input_tokens_total = uncached + cache read + cache write (also *_corrected)."""
+    if rec.get("input_tokens") is not None:
+        rec["input_tokens_total"] = sum(int(rec.get(k) or 0) for k in
+                                        ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    if rec.get("input_tokens_corrected") is not None:
+        rec["input_tokens_total_corrected"] = sum(int(rec.get(k) or 0) for k in (
+            "input_tokens_corrected", "cache_read_input_tokens_corrected", "cache_creation_input_tokens_corrected"))
+
+
+class UsageRecordingClient:
+    """
+    Transparent wrapper around an OpenAI, Anthropic, google-genai or
+    EstimatorClient client: every chat call is passed through unchanged and its
+    token usage is recorded on the ledger. All other attributes pass through.
+    """
+
+    def __init__(self, target, ledger, path=()):
+        object.__setattr__(self, "_ucr_target", target)
+        object.__setattr__(self, "_ucr_ledger", ledger)
+        object.__setattr__(self, "_ucr_path", path)
+
+    def __getattr__(self, name):
+        attr = getattr(self._ucr_target, name)
+        path = self._ucr_path + (name,)
+        if path in _USAGE_STYLES:
+            return self._ucr_wrap(attr, _USAGE_STYLES[path])
+        if any(p[:len(path)] == path for p in _USAGE_STYLES):
+            return UsageRecordingClient(attr, self._ucr_ledger, path)
+        return attr
+
+    def __setattr__(self, name, value):
+        setattr(self._ucr_target, name, value)
+
+    def _ucr_wrap(self, fn, style):
+        ledger = self._ucr_ledger
+        # Estimate runs answer through an EstimatorClient; real runs through the SDK.
+        source = "estimate" if _is_estimator_client(fn) else "api"
+
+        def call(*args, **kwargs):
+            t0 = time.time()
+            model = str(kwargs.get("model") or "")
+            cache_on = PROMPT_CACHE["enabled"] and model.lower().startswith("claude")
+            # Real Claude builder calls without tools: native API so they can cache.
+            native = cache_on and source == "api" and style == "openai" and not kwargs.get("tools")
+            call_kwargs = kwargs
+            if cache_on and source == "api" and style == "anthropic":
+                call_kwargs, _ = cached_anthropic_kwargs(kwargs)
+            try:
+                if native:
+                    resp, a_resp = native_anthropic_chat(kwargs)
+                else:
+                    resp = fn(*args, **call_kwargs)
+            except Exception as e:
+                ledger.record({"style": style, "source": source, "model": kwargs.get("model"),
+                               "input_tokens": None, "output_tokens": None,
+                               "error": f"{type(e).__name__}: {str(e)[:300]}",
+                               "latency_s": round(time.time() - t0, 3)})
+                raise
+            if native:
+                rec = usage_from_response(a_resp, "anthropic")
+                rec.update(style="anthropic", source=source, model=kwargs.get("model"),
+                           via="native_for_cache", latency_s=round(time.time() - t0, 3))
+            else:
+                rec = usage_from_response(resp, style)
+                rec.update(style=style, source=source, model=kwargs.get("model"),
+                           latency_s=round(time.time() - t0, 3))
+            if cache_on:
+                rec["prompt_cache"] = PROMPT_CACHE["ttl"]
+            if source == "estimate":
+                try:
+                    from token_estimator import CORRECTION
+                except Exception:  # noqa: BLE001
+                    CORRECTION = 1.0
+                for k in ("input_tokens", "output_tokens"):
+                    if rec.get(k) is not None:
+                        rec[f"{k}_corrected"] = round(rec[k] * CORRECTION)
+                if cache_on:
+                    simulate_cache(rec, fn, style, kwargs)
+            _add_input_totals(rec)
+            ledger.record(rec)
+            return resp
+        return call
+
+
+def _is_estimator_client(fn):
+    """True if a bound method belongs to an EstimatorClient (estimate run)."""
+    owner = getattr(fn, "__self__", None)
+    return owner is not None and "Estimator" in type(owner).__name__
+
+
+def record_client_usage(agent, ledger=TOKEN_LEDGER):
+    """Wrap an agent's client (once) so its calls are recorded."""
+    client = getattr(agent, "client", None)
+    if client is not None and not isinstance(client, UsageRecordingClient):
+        agent.client = UsageRecordingClient(client, ledger)
+
+
+def record_local_director_usage(agent, ledger=TOKEN_LEDGER):
+    """Count a local transformers director's tokens with its own tokenizer."""
+    orig = getattr(agent, "_generate_with_local_model", None)
+    if orig is None or getattr(orig, "_ucr_wrapped", False):
+        return
+
+    def counted(prompt, tokenizer):
+        t0 = time.time()
+        text = orig(prompt, tokenizer)
+        tok = tokenizer or getattr(getattr(agent, "local_model", None), "tokenizer", None)
+
+        def n(s):
+            try:
+                return len(tok.encode(s or "", add_special_tokens=False)) if tok else None
+            except Exception:  # noqa: BLE001
+                return None
+        ledger.record({"style": "local", "source": "local_tokenizer", "model": agent.model_name,
+                       "input_tokens": n(prompt), "output_tokens": n(text),
+                       "finish_reason": None, "latency_s": round(time.time() - t0, 3)})
+        return text
+    counted._ucr_wrapped = True
+    agent._generate_with_local_model = counted
+
+
+_TOKEN_FIELDS = ("input_tokens", "output_tokens", "input_tokens_corrected", "output_tokens_corrected",
+                 "cache_read_input_tokens", "cache_creation_input_tokens", "thinking_tokens",
+                 "cache_read_input_tokens_corrected", "cache_creation_input_tokens_corrected",
+                 "input_tokens_total", "input_tokens_total_corrected")
+
+
+def summarize_token_records(records, keys):
+    """Totals over `records`, grouped by the tuple of `keys` (joined with ' | ')."""
+    groups = {}
+    for r in records:
+        g = " | ".join(str(r.get(k)) for k in keys) if keys else "all"
+        b = groups.setdefault(g, {"calls": 0, "errors": 0, "calls_without_usage": 0})
+        b["calls"] += 1
+        b["errors"] += int("error" in r)
+        b["calls_without_usage"] += int(r.get("input_tokens") is None and "error" not in r)
+        for f in _TOKEN_FIELDS:
+            if r.get(f) is not None:
+                b[f] = b.get(f, 0) + r[f]
+    return groups
+
+
+def token_usage_block(records):
+    """The per-turn / per-game token_usage block."""
+    return {
+        "totals": summarize_token_records(records, ()).get("all", {"calls": 0}),
+        "by_role": summarize_token_records(records, ("role",)),
+        "by_agent": summarize_token_records(records, ("role", "director")),
+        "by_model": summarize_token_records(records, ("role", "model", "source")),
+    }
+
+
+def attach_turn_tokens(turn_data, cValues, start):
+    """Save this turn's calls and totals on turn_data, and the totals in the CSV row."""
+    calls = TOKEN_LEDGER.records[start:]
+    turn_data["token_usage"] = {"calls": [dict(c) for c in calls], **token_usage_block(calls)}
+    by_role = turn_data["token_usage"]["by_role"]
+    for role, label in (("director", "Director"), ("builder", "Builder")):
+        b = by_role.get(role, {})
+        # Total input (uncached + cache read + cache write), comparable with or without caching.
+        cValues[f"{label} Input Tokens"] = b.get("input_tokens_total", b.get("input_tokens", 0))
+        cValues[f"{label} Output Tokens"] = b.get("output_tokens", 0)
+        cValues[f"{label} Cache Read Tokens"] = b.get("cache_read_input_tokens", 0)
+        cValues[f"{label} Cache Write Tokens"] = b.get("cache_creation_input_tokens", 0)
+
+
+def condition_tag(condition, policy_path=None, random_seed=0):
+    if condition == "policy":
+        return f"cond-policy-{Path(policy_path).stem}"
+    if condition == "random":
+        return f"cond-random-rseed{random_seed}"
+    return "cond-baseline"
+
+
 # ─────────────────────────────────────────
 # MAIN EXPERIMENT RUNNER
 # ─────────────────────────────────────────
@@ -89,15 +779,24 @@ def run_craft_experiments(
     api_key="None",
     max_turns=15,
     output_dir="craft_results",
-    use_common_ground=False, 
+    use_common_ground=False,
     run = 1,
     lastPartType = None,
-    shared_model = None, 
+    shared_model = None,
     shared_tokenizer = None,
     builder_tool_use = True,
     use_oracle=False,
     num_oracle = None,
-    max_tokens = None
+    max_tokens = None,
+    condition = "baseline",
+    policy_scorer = None,
+    policy_path = None,
+    random_seed = 0,
+    token_estimator = None,
+    builder_parse_retries = 2,
+    builder_max_consecutive_errors = 3,
+    builder_max_tokens = None,
+    builder_one_line_instruction = True,
 ):
     os.makedirs(output_dir, exist_ok=True)
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -116,7 +815,7 @@ def run_craft_experiments(
     print(f"\nLoaded: {sample['id']} (complexity={sample['complexity']})")
     print(f"Metadata: {sample['metadata']}")
     
-        # the dataset's views must match the generator, whatever the mode (catches stale datasets)
+    # the dataset's views must match the generator, whatever the mode (catches stale datasets)
     recomputed_views = get_director_views_fn(sample["structure"])
     assert sample["director_views"] == recomputed_views, (
         f"director_views stored for {sample['id']} differ from get_director_views(structure)")
@@ -140,6 +839,7 @@ def run_craft_experiments(
     all_results = {
     'experiment_info': {
         'timestamp'      : current_time,
+        'run_id'         : RUN_ID,
         'dataset_path'   : dataset_path,
         'structure_index': structure_index,
         'max_turns'      : max_turns,
@@ -147,7 +847,7 @@ def run_craft_experiments(
             'director': director_model_name,
             'builder' : builder_model_name
         },
-        
+
         'use_oracle'     : use_oracle,
         'num_oracle'     : num_oracle,
         'builder_tool_use': builder_tool_use,
@@ -156,6 +856,20 @@ def run_craft_experiments(
         'run'            : run,
         'max_tokens'     : max_tokens,
         'partial_completion': lastPartType,
+        # utterance selection
+        'condition'      : condition,
+        'policy_path'    : str(policy_path) if policy_path else None,
+        'policy_feature_mode': policy_scorer.cfg.FEATURE_MODE if policy_scorer else None,
+        'policy_feature_tier': policy_scorer.cfg.FEATURE_TIER if policy_scorer else None,
+        'policy_loader': getattr(policy_scorer, 'loader', None) if policy_scorer else None,
+        'policy_arch': getattr(policy_scorer, 'arch', None) if policy_scorer else None,   # incl. recov_head / recov_weight
+        'random_seed'    : random_seed,
+        'builder_parse_retries': builder_parse_retries,
+        'builder_max_consecutive_errors': builder_max_consecutive_errors,
+        'builder_max_tokens': builder_max_tokens,       # None = provider default (see BuilderAgent)
+        'builder_one_line_instruction': builder_one_line_instruction,
+        'prompt_cache': PROMPT_CACHE["enabled"],
+        'prompt_cache_ttl': PROMPT_CACHE["ttl"] if PROMPT_CACHE["enabled"] else None,
             },
         'games': []
     }
@@ -163,28 +877,30 @@ def run_craft_experiments(
     model_combo_dir = f"{output_dir}/{director_model_name}_{builder_model_name}/"
     os.makedirs(model_combo_dir, exist_ok=True)
 
-    md_path  = f"{model_combo_dir}/craft_{sample['id']}_{run}.md"
-    json_path = f"{model_combo_dir}/craft_{sample['id']}_{run}.json"
-    os.makedirs(os.path.dirname(json_path), exist_ok=True)   
-    main_grice_correctness_filename = f"{model_combo_dir}/craft_{sample['id']}_correctness_{run}.csv"
+    run_suffix = f"_{RUN_ID}" if RUN_ID else ""      # never overwrite an earlier run's files
+    md_path  = f"{model_combo_dir}/craft_{sample['id']}_{run}{run_suffix}.md"
+    json_path = f"{model_combo_dir}/craft_{sample['id']}_{run}{run_suffix}.json"
+    os.makedirs(os.path.dirname(json_path), exist_ok=True)
+    main_grice_correctness_filename = f"{model_combo_dir}/craft_{sample['id']}_correctness_{run}{run_suffix}.csv"
 
     with open(md_path, 'w') as f:
         f.write(f"# CRAFT Results — {sample['structure']}\n\n")
-   
+        f.write(f"Condition: {condition}\n\n")
+
     # ── Run each structure ────────────────────────────────────
     for idx, structure_data in enumerate(tqdm(target_structures_list)):
 
         print(f"\n===== Structure {idx+1}: {structure_data['id']} =====")
-        if shared_model is None: 
+        if shared_model is None:
             print("calling api dirs ")
- 
+
             director_agents = {
                 did: DirectorAgent(
                     director_id=did,
                     use_api=True,
                     api_key=api_key,
                     model_name=director_model_name,
-                    structure_index=structure_index,    
+                    structure_index=structure_index,
                     run=run,      
                     max_tokens=max_tokens,
                     ref_fix=REF_FIX,
@@ -200,7 +916,7 @@ def run_craft_experiments(
                 model_name=director_model_name,
                 local_model=shared_model,
                 local_tokenizer=shared_tokenizer,
-                structure_index=structure_index,  
+                structure_index=structure_index,
                 run=run,
                 max_tokens=max_tokens,
                 ref_fix=REF_FIX,
@@ -210,7 +926,12 @@ def run_craft_experiments(
 
 
         builder_agent = BuilderAgent(api_key=api_key, model_name=builder_model_name)
-        
+        builder_agent.max_parse_retries = builder_parse_retries
+        builder_agent.one_line_instruction = builder_one_line_instruction
+        if builder_max_tokens:
+            builder_agent.max_output_tokens = builder_max_tokens
+        all_results['experiment_info']['builder_max_tokens_used'] = builder_agent.max_output_tokens
+
         common_ground_agent = None
         if use_common_ground:
             common_ground_agent = CommonGroundAgent(
@@ -218,24 +939,49 @@ def run_craft_experiments(
                 api_key=api_key,
                 model_name=common_ground_model_name
             )
+
+        if token_estimator is not None:
+            attach_estimator(token_estimator, builder_agent, director_agents, common_ground_agent)
+        # Record every model call's tokens (wraps whatever client each agent
+        # now holds: the real one, or the estimator's).
+        record_client_usage(builder_agent)
+        for agent in director_agents.values():
+            if getattr(agent, "use_api", True):
+                record_client_usage(agent)
+            else:
+                record_local_director_usage(agent)
+        if common_ground_agent is not None:
+            record_client_usage(common_ground_agent)
+
+        # A fresh policy history for every game.
+        policy_selector = None
+        if policy_scorer is not None:
+            policy_selector = PolicySelector(
+                policy_scorer, structure_data['structure'], structure_data['id'],
+                model_combo=f"{director_model_name}+{builder_model_name}",
+            )
+
         try:
             game_result, correctness, lastPartType = run_single_game(
                 structure_data=structure_data,
-                director_agents=director_agents, 
+                director_agents=director_agents,
                 builder_agent=builder_agent,
-                # chair_agent=chair_agent,             
+                # chair_agent=chair_agent,
                 common_ground_agent=common_ground_agent,
-              
+
                 max_turns=max_turns,
                 structure_idx=idx,
                 correctness=correctness,
-                use_common_ground=use_common_ground, 
+                use_common_ground=use_common_ground,
                 run = run,
                 lastPartType = lastPartType,
                 use_tools = builder_tool_use,
                 use_oracle=use_oracle,
-                num_oracle = num_oracle
-                
+                num_oracle = num_oracle,
+                condition = condition,
+                policy_selector = policy_selector,
+                random_seed = random_seed,
+                builder_max_consecutive_errors = builder_max_consecutive_errors,
             )
         except Exception as e:
             print(f"Error in structure {idx}: {e}")
@@ -244,23 +990,28 @@ def run_craft_experiments(
                 'error': str(e),
                 'completed': False,
                 'turns_taken': 0,
-                'final_progress': 0.0
+                'final_progress': 0.0,
+                'condition': condition,
             }
 
         all_results['games'].append(game_result)
 
         with open(md_path, 'a') as f:
             f.write(f"\n## {structure_data['id']}\n")
+            f.write(f"- Condition: {condition}\n")
             f.write(f"- Turns: {game_result['turns_taken']}\n")
             f.write(f"- Progress: {game_result.get('final_progress', 0):.3f}\n")
             f.write(f"- Completed: {game_result.get('completed', False)}\n")
+            f.write(f"- Stopping reason: {game_result.get('stopping_reason', 'n/a')}\n")
+            if game_result.get('selection_summary'):
+                f.write(f"- Selection: {json.dumps(game_result['selection_summary'])}\n")
 
         correctness.index.name = 'Transcript'
         print(correctness)
         correctness.to_csv(main_grice_correctness_filename)
 
     with open(json_path, 'w') as f:
-        json.dump(all_results, f, indent=2)
+        json.dump(all_results, f, indent=2, default=str)
 
     print(f"\nDone. Results: {json_path}")
     return all_results, lastPartType
@@ -274,9 +1025,9 @@ def run_single_game(
     structure_data,
     director_agents,
     builder_agent,
-    # chair_agent,  
+    # chair_agent,
     common_ground_agent,
- 
+
     correctness,
     max_turns=15,
     structure_idx=0,
@@ -285,10 +1036,18 @@ def run_single_game(
     lastPartType = None,
     use_tools = True,
     use_oracle=False,
-    num_oracle = None
-    
+    num_oracle = None,
+    condition = "baseline",
+    policy_selector = None,
+    random_seed = 0,
+    builder_max_consecutive_errors = 3,
+
 ):
     requestCount = 0
+    # Builder API errors (the call itself failed, not an unparseable reply).
+    # generate_move turns these into CLARIFYs, so without this check a broken
+    # Builder would silently use up every turn while the directors keep paying.
+    consecutive_builder_errors = 0
     start = time.time()
     target_structure    = structure_data['structure']
     target_spans        = structure_data['spans']          # already int keys
@@ -302,7 +1061,7 @@ def run_single_game(
         partComplete=partComplete,
         partType = lastPartType
     )
-  
+
     # ── Sanity check: stored views vs recomputed ──────────────
     tmp = copy.deepcopy(game_state.current_structure)
     game_state.current_structure = copy.deepcopy(target_structure)
@@ -316,7 +1075,7 @@ def run_single_game(
                      for d, rows in recomputed.items()}
     compare_views("TARGET VIEW CONSISTENCY BEFORE GAME STARTS", target_director_views, raw_views)
 
-    
+
     conversation_history = []
 
     game_results = {
@@ -332,6 +1091,7 @@ def run_single_game(
         'final_structure'     : {},
         'stopping_reason'     : 'max_turns_reached',
         'partialCompletion'   : partComplete,
+        'condition'           : condition,
     }
 
     if(partComplete):
@@ -342,11 +1102,37 @@ def run_single_game(
         game_results[d.director_id + " Archetype"] = d.archetype
 
     game_results['turns'] = []
+    game_token_start = len(TOKEN_LEDGER.records)
+    SIM_PROMPT_CACHE.clear()      # estimate runs: each game starts with a cold simulated cache
+
+    # Per-game counts of what each selection method picked.
+    selection_counts = {
+        'turns_selected': 0,
+        'policy_picks': {d: 0 for d in DIRECTOR_IDS},
+        'random_picks': {d: 0 for d in DIRECTOR_IDS},
+        'policy_equals_random': 0,
+        'policy_argmax_was_silent': 0,
+        'builder_heard_single_director': 0,
+        'no_director_spoke': 0,
+    }
+    # Builder replies that needed a format re-prompt, and ones that never parsed.
+    parse_counts = {
+        'builder_turns': 0,
+        'turns_with_retry': 0,
+        'retries_total': 0,
+        'unparsed_after_retries': 0,
+        'model_clarify': 0,
+        'rejected_replies': 0,
+        'rejected_by_reason': {},       # empty | no_move_line | parse_error | other
+        'rejected_hit_output_cap': 0,   # rejected replies that stopped at the output cap
+        'api_errors': 0,                # Builder calls that failed outright (not counted as unparsed)
+    }
 
     # ── MAIN LOOP ─────────────────────────────────────────────
     for turn in range(max_turns):
-        print(f"\n--- Turn {turn+1}/{max_turns} ---")
+        print(f"\n--- Turn {turn+1}/{max_turns} [condition={condition}] ---")
         game_state.increment_turn()
+        turn_token_start = len(TOKEN_LEDGER.records)
         cValues = {}
         cValues['Turn']=(turn + 1)
         turn_data = {
@@ -371,13 +1157,15 @@ def run_single_game(
             director_responses = {}
             for did in director_order:
                 print(f"  {did} responding...")
- 
+
                 director_prompt = director_agents[did].get_director_prompt(
                     current_view=full_board_state,           # full board, all layers
                     target_view=target_director_views[did],  # partial — director's perspective only
                     conversation_history=public_conversation,
                     available_blocks=game_state.available_blocks
                 )
+                TOKEN_LEDGER.set_context(role="director", director=did, turn=turn + 1,
+                                         structure_id=structure_data['id'], condition=condition)
                 resp = director_agents[did].generate_response(
                     current_view=full_board_state,           # full board, all layers
                     target_view=target_director_views[did],  # partial — director's perspective only
@@ -385,7 +1173,7 @@ def run_single_game(
                     available_blocks=game_state.available_blocks
                 )
                 requestCount += 1
-                
+
                 if(resp["internal_thinking"].__contains__("429")):
                     end = time.time()
                     length = end - start
@@ -399,12 +1187,12 @@ def run_single_game(
 
                 director_responses[did] = resp
                 conversation_history.append(f"{did}: {resp['public_message']}")
-        
+
                 print(f"  {did}: {resp['public_message'][:80]}")
                 turn_data[f'director_prompt_{did}'] = director_prompt
                 # print(f"  {did} INTENT: {intent}")
             turn_data['director_responses'] = director_responses
-             
+
             def is_validResponse(val):
                 return val[1]['public_message'] != "No message provided"
 
@@ -414,56 +1202,197 @@ def run_single_game(
                 for did, r in filter(is_validResponse, director_responses.items())
             )
 
-          
+            # ── Utterance selection ───────────────────────────
+            # director_order samples with replacement, so a director can be
+            # missing this turn; missing and silent directors can't be picked.
+            messages = {d: (director_responses[d]['public_message'] if d in director_responses else "")
+                        for d in DIRECTOR_IDS}
+            speaking = [d for d in DIRECTOR_IDS if not is_silent_message(messages[d])]
+
+            selection = {
+                'condition': condition,
+                'speaking': speaking,
+                'director_order': director_order,
+                'messages': messages,
+                'baseline': {'method': 'baseline', 'directors': speaking,
+                             'utterance': director_discussion_full},
+                'policy': None,
+                'random': None,
+            }
+
+            policy_choice = None
+            if policy_selector is not None:
+                chosen, raw, scores = policy_selector.score_turn(
+                    turn + 1, turn_data['structure_before'], messages, speaking)
+                if chosen is not None:
+                    policy_choice = chosen
+                    selection['policy'] = {
+                        'method': 'policy', 'choice': chosen, 'raw_argmax': raw,
+                        'argmax_was_silent': raw != chosen, 'scores': scores,
+                        'utterance': f"{chosen}: {messages[chosen]}",
+                    }
+                    selection_counts['policy_picks'][chosen] += 1
+                    selection_counts['policy_argmax_was_silent'] += int(raw != chosen)
+                    print(f"  [POLICY] scores "
+                          + " ".join(f"{d}={scores[d]:+.4f}" for d in DIRECTOR_IDS)
+                          + f" -> {chosen}" + (f" (raw argmax {raw} silent)" if raw != chosen else ""))
+
+            random_choice = random_pick(random_seed, structure_data['id'], run, turn + 1, pool=speaking)
+            if random_choice is not None:
+                selection['random'] = {
+                    'method': 'random', 'choice': random_choice, 'pool': speaking,
+                    'p_choice': round(1.0 / len(speaking), 6),
+                    'seed_key': [random_seed, structure_data['id'], run, turn + 1],
+                    'utterance': f"{random_choice}: {messages[random_choice]}",
+                }
+                selection_counts['random_picks'][random_choice] += 1
+                print(f"  [RANDOM] draw from {speaking} -> {random_choice}")
+
+            if policy_choice is not None and random_choice is not None:
+                selection_counts['policy_equals_random'] += int(policy_choice == random_choice)
+
+            # What the Builder actually hears this turn.
+            if condition == "policy" and policy_choice is not None:
+                builder_discussion = selection['policy']['utterance']
+                builder_heard = [policy_choice]
+                used_method = 'policy'
+            elif condition == "random" and random_choice is not None:
+                builder_discussion = selection['random']['utterance']
+                builder_heard = [random_choice]
+                used_method = 'random'
+            else:
+                # 'baseline', or no director spoke (nothing to select from)
+                builder_discussion = director_discussion_full
+                builder_heard = list(speaking)
+                used_method = 'baseline'
+            if not speaking:
+                selection_counts['no_director_spoke'] += 1
+            selection_counts['turns_selected'] += 1
+            selection_counts['builder_heard_single_director'] += int(used_method != 'baseline')
+
+            selection['used_method'] = used_method
+            selection['builder_heard'] = builder_heard
+            selection['builder_input'] = builder_discussion
+            turn_data['utterance_selection'] = selection
+            turn_data['director_discussion_used'] = builder_discussion
+            print(f"  [SELECTION] condition={condition} used={used_method} builder hears {builder_heard}")
+
             oracle_moves = None
             if use_oracle:
                 rng = random.Random(structure_idx * 1000 +  (turn + 1))
-           
+
                 oracle_moves = get_oracle_moves(game_state, n=num_oracle, rng=rng)
                 print(f"  [ORACLE] {len(oracle_moves)} correct moves available this turn with num oracle:{num_oracle}:")
                 for m in oracle_moves:
                     span_str = f" → {m['span_to']}" if m.get('span_to') else ""
                     print(f"    {m['action'].upper()} {m.get('block','')} "
                         f"@ {m['position']} layer {m['layer']}{span_str}")
-                        
+
+            TOKEN_LEDGER.set_context(role="builder", director=None, turn=turn + 1,
+                                     structure_id=structure_data['id'], condition=condition)
             builder_prompt = builder_agent.get_builder_prompt(
-                director_discussion=director_discussion_full,
+                director_discussion=builder_discussion,
                 current_state=game_state.current_structure,
                 available_blocks=game_state.available_blocks,
                 use_tools=use_tools,
-                oracle_moves=oracle_moves,  
+                oracle_moves=oracle_moves,
                 builderPromptAddin = BUILDER_PROMPT
             )
-            
+
             if use_tools:
                 builder_move = builder_agent.generate_move_with_tools(
-                director_discussion=director_discussion_full,
+                director_discussion=builder_discussion,
                 game_state=game_state,  # pass state so tool can simulate
-                oracle_moves=oracle_moves, 
+                oracle_moves=oracle_moves,
                 check_prompt_tokens=True  # ← only when needed
             )
             else:
                 builder_move = builder_agent.generate_move(
-                director_discussion=director_discussion_full,
+                director_discussion=builder_discussion,
                 current_state=game_state.current_structure,  # pass state so tool can simulate
                 available_blocks=game_state.available_blocks,
-                oracle_moves=oracle_moves, 
+                oracle_moves=oracle_moves,
             )
-            
+
             print(f"  Builder move: {builder_move}")
+
+            # Parse retries (see BuilderAgent._retry_unparsed): a reply that
+            # couldn't be parsed is re-prompted up to --builder_parse_retries
+            # times; only if it still fails is the turn recorded as a CLARIFY.
+            attempts = getattr(builder_agent, 'last_attempts', 1) or 1
+            parse_failed = bool(getattr(builder_agent, 'last_parse_failed', False))
+            turn_data['builder_attempts'] = attempts
+            turn_data['builder_parse_failed'] = parse_failed
+            turn_data['builder_raw_text'] = getattr(builder_agent, 'last_raw_text', None)
+            # Every rejected reply this turn: attempt, reason, hit_output_cap, finish_reason, text.
+            rejected = list(getattr(builder_agent, 'last_rejected', []) or [])
+            turn_data['builder_rejected_replies'] = rejected
+            parse_counts['rejected_replies'] += len(rejected)
+            for rec in rejected:
+                parse_counts['rejected_by_reason'][rec['reason']] = \
+                    parse_counts['rejected_by_reason'].get(rec['reason'], 0) + 1
+                parse_counts['rejected_hit_output_cap'] += int(rec['hit_output_cap'])
+            parse_counts['builder_turns'] += 1
+            parse_counts['turns_with_retry'] += int(attempts > 1)
+            parse_counts['retries_total'] += attempts - 1
+            parse_counts['unparsed_after_retries'] += int(parse_failed)
+            parse_counts['model_clarify'] += int(builder_move.get('action') == 'clarify' and not parse_failed)
+
+            # ── Builder API errors ────────────────────────────
+            builder_errors = [c["error"] for c in TOKEN_LEDGER.records[turn_token_start:]
+                              if c.get("role") == "builder" and c.get("error")]
+            api_error = (builder_errors[-1] if builder_errors else
+                         builder_move.get('clarification') if str(builder_move.get('clarification', ''))
+                         .startswith("Error in move generation") else None)
+            if api_error:
+                consecutive_builder_errors += 1
+                turn_data['builder_api_error'] = api_error
+                # A failed call isn't an unparseable reply: keep the parse stats clean.
+                parse_counts['api_errors'] += 1
+                if parse_failed:
+                    parse_counts['unparsed_after_retries'] -= 1
+                    parse_failed = False
+                    turn_data['builder_parse_failed'] = False
+                limit = builder_max_consecutive_errors
+                print(f"  [builder] API ERROR ({consecutive_builder_errors}"
+                      f"{f'/{limit}' if limit else ''} in a row): {api_error}")
+                if limit and consecutive_builder_errors >= limit:
+                    bar = "!" * 76
+                    print(f"\n{bar}\n  STOPPING GAME: the Builder's API call failed {consecutive_builder_errors} "
+                          f"turns in a row.\n  Last error: {api_error}\n"
+                          f"  Fix the Builder (model name, API key, endpoint) before rerunning; "
+                          f"--builder_max_consecutive_errors 0 disables this stop.\n{bar}\n")
+                    game_results['stopping_reason'] = 'builder_api_errors'
+                    game_results['builder_api_error'] = api_error
+                    attach_turn_tokens(turn_data, cValues, turn_token_start)
+                    game_results['turns'].append(turn_data)
+                    break
+            else:
+                consecutive_builder_errors = 0
             cValues['Transcription'] = director_discussion_full
+            cValues['Condition'] = condition
+            cValues['Selection Method'] = used_method
+            cValues['Builder Heard'] = ",".join(builder_heard)
+            cValues['Policy Choice'] = policy_choice if policy_choice else "N/A"
+            cValues['Random Choice'] = random_choice if random_choice else "N/A"
+            cValues['Builder Attempts'] = attempts
+            cValues['Parse Failed'] = parse_failed
+            cValues['Rejected Reasons'] = ",".join(
+                r['reason'] + ("+cap" if r['hit_output_cap'] else "") for r in rejected) or "N/A"
             cValues['Failed Move']="N/A"
             cValues['Structure Placement']="N/A"
             cValues['Side Placement']="N/A"
             cValues['Overall Structure State']="N/A"
             cValues['Group Agreement']='N/A'
-            #requestCount += 1 
+            #requestCount += 1
 
             # ── Execute ───────────────────────────────────────
+            move_failed = False
             if builder_move['action'] == 'clarify':
                 conversation_history.append(f"Builder: {builder_move['clarification']}")
                 turn_data['move_executed'] = False
                 turn_data['clarification'] = builder_move['clarification']
+                turn_data['builder_prompt'] = builder_prompt
                 cValues['Clarify'] = True
 
             else:
@@ -474,6 +1403,7 @@ def run_single_game(
                     turn_data['builder_move_raw'] = copy.deepcopy(builder_move)
 
                 success, progress_data, structurePlacement, sidePlacement, overall = game_state.execute_move(builder_move)
+                move_failed = not success
 
                 if use_oracle and oracle_moves:
                     attempted = builder_move
@@ -513,7 +1443,7 @@ def run_single_game(
                     cValues['Overall Structure State']=(overall)
                 cValues['Group Agreement']='N/A'
                 turn_data['director_discussion_full'] = director_discussion_full
-                # turn_data['director_discussion_used'] = director_discussion_used
+                # turn_data['director_discussion_used'] is set in the selection block above
 
                 if success:
                     print(f"  Move OK. Progress: {progress_data['metrics']['overall_progress']:.3f}")
@@ -525,6 +1455,8 @@ def run_single_game(
                     )
                     if use_common_ground and common_ground_agent is not None:
                         print("Analyzing common ground...")
+                        TOKEN_LEDGER.set_context(role="common_ground", director=None, turn=turn + 1,
+                                                 structure_id=structure_data['id'], condition=condition)
                         common_ground_result = common_ground_agent.generate_common_ground(
                             director_responses=director_responses,
                             current_board_state=game_state.current_structure,
@@ -539,17 +1471,27 @@ def run_single_game(
                 if not success:
                     err = progress_data.get('error', 'Unknown')
                     msg = f"Move failed: {err}. Please give different instructions."
-                    #removing board state as well after builder failed move. too much info in context. 
+                    #removing board state as well after builder failed move. too much info in context.
                     conversation_history.append(
                     f"Builder: FAILED — {err}. Board unchanged: {json.dumps(game_state.current_structure)}"
                 )
                     print(f"  Move FAILED: {err}")
+
+            # Add this turn to the policy's per-game history (after-board and
+            # which director the Builder heard alone, if any).
+            if policy_selector is not None:
+                policy_selector.commit(
+                    followed=builder_heard[0] if used_method != 'baseline' else None,
+                    board_after=game_state.current_structure,
+                    move_failed=move_failed,
+                )
 
             # ── Completion check ──────────────────────────────
             if game_state.is_complete():
                 print("  Target achieved!")
                 turn_data['target_achieved'] = True
                 game_results['stopping_reason'] = 'target_achieved'
+                attach_turn_tokens(turn_data, cValues, turn_token_start)
                 game_results['turns'].append(turn_data)
                 break
             else:
@@ -559,7 +1501,8 @@ def run_single_game(
             # conversation_history = conversation_history[-8:] #harsher trimming
             if len(conversation_history) > 50:
                 conversation_history = conversation_history[-40:]
-             
+
+            attach_turn_tokens(turn_data, cValues, turn_token_start)
             game_results['turns'].append(turn_data)
 
             # New row data as a single-row DataFrame
@@ -572,6 +1515,7 @@ def run_single_game(
         except Exception as e:
             print(f"  Error turn {turn+1}: {e}")
             turn_data['error'] = str(e)
+            attach_turn_tokens(turn_data, cValues, turn_token_start)
             game_results['turns'].append(turn_data)
             break
 
@@ -579,6 +1523,20 @@ def run_single_game(
     game_results['turns_taken']     = len(game_results['turns'])
     game_results['final_structure'] = copy.deepcopy(game_state.current_structure)
     game_results['final_spans']     = copy.deepcopy(game_state.current_spans)
+    game_results['selection_summary'] = selection_counts
+    game_results['builder_parse_summary'] = parse_counts
+    TOKEN_LEDGER.set_context()
+    game_results['token_usage'] = token_usage_block(TOKEN_LEDGER.records[game_token_start:])
+    _gt = game_results['token_usage']['by_role']
+    print("  [tokens] this game: " + ", ".join(
+        f"{role} {b.get('input_tokens', 0)} in / {b.get('output_tokens', 0)} out ({b['calls']} calls)"
+        for role, b in sorted(_gt.items())))
+    if parse_counts['turns_with_retry'] or parse_counts['unparsed_after_retries'] or parse_counts['api_errors']:
+        print(f"  [builder] parse retries this game: {parse_counts['retries_total']} over "
+              f"{parse_counts['turns_with_retry']} turn(s); still unparsed after retries: "
+              f"{parse_counts['unparsed_after_retries']}; API errors: {parse_counts['api_errors']}; "
+              f"rejected replies by reason: "
+              f"{parse_counts['rejected_by_reason']} ({parse_counts['rejected_hit_output_cap']} hit the output cap)")
 
     if game_state.progress_tracker.progress_history:
         last = game_state.progress_tracker.progress_history[-1]
@@ -587,7 +1545,7 @@ def run_single_game(
 
     game_results['progress_summary'] = game_state.get_progress_summary()
 
-    print(f"\nGame done: {game_results['turns_taken']} turns, "
+    print(f"\nGame done [{condition}]: {game_results['turns_taken']} turns, "
           f"progress={game_results['final_progress']:.3f}, "
           f"completed={game_results['completed']}")
 
@@ -623,6 +1581,26 @@ if __name__ == "__main__":
                         help="Disable builder tool use (simulate_move)")
     parser.add_argument("--ref_fix",       action="store_true",
                         help="Give D2 and D3 their views in the order their prompts state")
+    parser.add_argument("--builder_max_consecutive_errors", type=int, default=3,
+                        help="End a game when the Builder's API call fails this many turns in a row "
+                             "(failed calls, not unparseable replies). 0 = never stop.")
+    parser.add_argument("--builder_parse_retries", type=int, default=2,
+                        help="Re-prompt the Builder for the PLACE/REMOVE/CLARIFY format up to N times "
+                             "when its reply can't be parsed, before the turn counts as a CLARIFY "
+                             "(same as the rollout harness). 0 = old behaviour.")
+    parser.add_argument("--builder_max_tokens", type=int, default=None,
+                        help="Output cap for the Builder's move call and its retries. Default: the "
+                             "rollout harness's values (400; 4096 for Claude). 250 = old full-game value.")
+    parser.add_argument("--prompt_cache", action="store_true",
+                        help="Prompt caching for Claude models: the stable start of each director and "
+                             "builder prompt (everything before CURRENT BOARD STATE) is cached. The Claude "
+                             "builder's plain calls then use the native API. With --token_estimate the cache "
+                             "is simulated. Off by default.")
+    parser.add_argument("--prompt_cache_ttl", choices=["5m", "1h"], default="5m",
+                        help="(--prompt_cache) Cache lifetime: 5m (writes 1.25x input price) or 1h (2x).")
+    parser.add_argument("--builder_no_one_line_instruction", action="store_true",
+                        help="Leave 'Output EXACTLY ONE line...' out of the Builder's system prompt "
+                             "(the old full-game prompt). By default it is included, as in the rollout harness.")
     parser.add_argument("--structures",     type=str, default="0,1,2,3,4,5,6,7,8,9",
                         help="Comma-separated structure indices to run (e.g. '0,1,5'). Default: all")
     parser.add_argument("--quantize",       type=str, default=None,
@@ -630,7 +1608,55 @@ if __name__ == "__main__":
                         help="Quantization for local models (qwen-72b/32b default 4bit)")
     parser.add_argument("--max_tokens",     type=int, default=None,
                         help="Override max output tokens for director (overrides per-model defaults)")
+    # ── Utterance-selection conditions ────────────────────────
+    parser.add_argument("--conditions",     type=str, default="baseline",
+                        help="Comma-separated conditions, each run as its own full game per structure: "
+                             "'baseline' (Builder hears every director, the original game), 'policy' "
+                             "(Builder hears only the policy's pick), 'random' (Builder hears one random "
+                             "director). E.g. 'baseline,policy,random'. 'all' is accepted as an old name "
+                             "for 'baseline'. Default: baseline")
+    parser.add_argument("--policy_path",    type=str, default=None,
+                        help="Trained index policy (.pt). Required for the 'policy' condition; if given, "
+                             "the policy's pick is also logged (not used) in the other conditions.")
+    parser.add_argument("--policy_code_dir", type=str, default=None,
+                        help="Folder with the policy project's config.py/features.py/models.py/arm_state.py. "
+                             "Default: searched next to --policy_path.")
+    parser.add_argument("--policy_feature_mode", type=str, default=None,
+                        help="Override FEATURE_MODE for the policy (must match training).")
+    parser.add_argument("--policy_feature_tier", type=str, default=None,
+                        help="Override FEATURE_TIER for the policy (must match training).")
+    parser.add_argument("--policy_allow_silent", action="store_true",
+                        help="Let the policy pick a silent director (default: best-scoring director who spoke).")
+    parser.add_argument("--random_seed",    type=int, default=0,
+                        help="Seed for the random condition's draws (combined with structure, run and turn).")
+    parser.add_argument("--token_estimate", action="store_true",
+                        help="Estimate API token usage instead of calling any model: every builder and "
+                             "director call is answered by the local Qwen model in token_estimator.py "
+                             "and its tokens are recorded. Needs token_estimator.py next to this script.")
+    parser.add_argument("--estimate_max_tokens", type=int, default=512,
+                        help="(--token_estimate) Output cap for calls that don't set max_tokens themselves.")
+    parser.add_argument("--estimate_backend", choices=["transformers", "ollama"], default="transformers",
+                        help="(--token_estimate) 'transformers' (default): Qwen2.5-14B loaded locally, "
+                             "~30 GB GPU. 'ollama': the model in --estimate_model served by Ollama "
+                             "(ollama_token_estimator.py next to this script).")
+    parser.add_argument("--estimate_model_path", type=str, default=None,
+                        help="(--token_estimate) Local folder (or Hugging Face id) for the estimator's "
+                             "Qwen2.5-14B-Instruct, instead of downloading it to the Hugging Face "
+                             "cache. With --estimate_backend ollama, used for the tokenizer only.")
+    parser.add_argument("--estimate_model", type=str, default="qwen2.5:14b-instruct",
+                        help="(--estimate_backend ollama) Ollama model that answers the calls.")
+    parser.add_argument("--estimate_num_ctx", type=int, default=16384,
+                        help="(--estimate_backend ollama) Starting context size; grows automatically "
+                             "if a prompt needs more, so prompts are never cut.")
     args = parser.parse_args()
+    RUN_ID = datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + "%04x" % random.SystemRandom().getrandbits(16)
+
+    if args.token_estimate:
+        # Agents build their real clients before the estimator replaces them,
+        # and some SDKs refuse to construct without a key. Placeholder keys
+        # only fill missing ones; with the estimator no request is ever sent.
+        for k in ESTIMATE_DUMMY_KEYS:
+            os.environ.setdefault(k, "token-estimate")
 
     api_key = os.getenv('OPENAI_API_KEY')
 
@@ -652,10 +1678,106 @@ if __name__ == "__main__":
     fix_tag = "reffix" if REF_FIX else ""
     print(args)
 
-    OUTPUT_DIR = args.output or (
+    PROMPT_CACHE["enabled"] = bool(args.prompt_cache)
+    PROMPT_CACHE["ttl"] = args.prompt_cache_ttl
+    cache_tag = (f"_pcache{args.prompt_cache_ttl}" if args.prompt_cache else "")
+    BASE_OUTPUT_DIR = args.output or (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
-        f"{oracle_tag}_{tools_tag}_{fix_tag}_{run_tag}")
+        f"{oracle_tag}_{tools_tag}_{fix_tag}_{run_tag}{cache_tag}")
+
+    if args.prompt_cache:
+        print(f"[cache] Prompt caching ON for Claude models (ttl {args.prompt_cache_ttl}): breakpoint at "
+              f"the line before '{CACHE_SPLIT_MARKER}'."
+              + (" Simulated (--token_estimate)." if args.token_estimate else "")
+              + ("" if args.no_tools else " Tool-using builder calls can't be cached (OpenAI-compatible "
+                                          "endpoint); add --no_tools to cache the builder too."))
+
+    # ── Conditions and policy ─────────────────────────────────
+    CONDITIONS_TO_RUN = [CONDITION_ALIASES.get(c.strip(), c.strip())
+                         for c in args.conditions.split(",") if c.strip()]
+    bad = [c for c in CONDITIONS_TO_RUN if c not in CONDITIONS]
+    if bad:
+        raise ValueError(f"Unknown condition(s) {bad}. Choose from {list(CONDITIONS)}")
+    if "policy" in CONDITIONS_TO_RUN and not args.policy_path:
+        raise ValueError("The 'policy' condition needs --policy_path.")
+
+    POLICY_SCORER = None
+    if args.policy_path:
+        POLICY_SCORER = load_policy_scorer(
+            args.policy_path, code_dir=args.policy_code_dir,
+            feature_mode=args.policy_feature_mode, feature_tier=args.policy_feature_tier,
+            allow_silent=args.policy_allow_silent,
+        )
+
+    def output_dir_for(condition):
+        """'baseline' without --output keeps the original folder, so existing runs line up."""
+        tag = condition_tag(condition, args.policy_path, args.random_seed)
+        if args.output:
+            return os.path.join(args.output, tag)
+        out = BASE_OUTPUT_DIR if condition == "baseline" else f"{BASE_OUTPUT_DIR}_{tag}"
+        # Estimate runs never write into real result folders.
+        return f"{out}_token_estimate" if args.token_estimate else out
+
+    EST = None
+    if args.token_estimate:
+        try:
+            from token_estimator import TokenEstimator, EstimatorClient
+        except Exception as e:
+            raise SystemExit(f"[estimate] Could not import token_estimator.py ({e}). "
+                             f"Put it next to run_craft.py.")
+        if args.estimate_model_path:
+            # TokenEstimator reads token_estimator.MODEL when it is created, so
+            # pointing it at a local copy avoids the download entirely.
+            import token_estimator as _te
+            _te.MODEL = args.estimate_model_path
+            print(f"[estimate] estimator model/tokenizer from: {args.estimate_model_path}")
+        if args.estimate_backend == "ollama":
+            try:
+                import ollama_token_estimator as _ote
+                if args.estimate_model_path:
+                    _ote.TOKENIZER_MODEL = args.estimate_model_path
+                from ollama_token_estimator import OllamaTokenEstimator
+            except Exception as e:
+                raise SystemExit(f"[estimate] Could not import ollama_token_estimator.py ({e}). "
+                                 f"Put it next to run_craft.py.")
+            EST = OllamaTokenEstimator(model=args.estimate_model, max_tokens=args.estimate_max_tokens,
+                                       num_ctx=args.estimate_num_ctx)
+        else:
+            print("[estimate] Loading the token estimator (one model for the whole run)...")
+            EST = TokenEstimator(max_tokens=args.estimate_max_tokens)
+        # Gemini directors create google.genai.Client() inside every call.
+        try:
+            from google import genai as _genai
+            _genai.Client = lambda *a, **k: make_estimator_client(EST, "director")
+        except ImportError:
+            pass
+        if DIRECTOR_MODE == "local":
+            print("[estimate] NOTE: --mode local directors run through transformers and are not "
+                  "estimated; only the builder's calls will be counted. Use --mode api with the "
+                  "director model you plan to pay for.")
+        if USE_TOOLS:
+            print("[estimate] NOTE: the estimator can't make simulate_move tool calls, so each "
+                  "builder turn is estimated as a single call. A real tool-using builder makes "
+                  "up to 3 extra round trips per turn, each resending the prompt, so builder "
+                  "tokens are a lower bound. Run with --no_tools for an exact like-for-like count.")
+    ESTIMATE_DIR = (args.output or f"{BASE_OUTPUT_DIR}_token_estimate") if args.token_estimate else None
+    # Gemini directors create google.genai.Client() inside every call: wrap
+    # whatever that class now returns (the real client, or the estimator's).
+    try:
+        from google import genai as _genai_for_usage
+        _make_genai_client = _genai_for_usage.Client
+        _genai_for_usage.Client = lambda *a, **k: UsageRecordingClient(_make_genai_client(*a, **k), TOKEN_LEDGER)
+    except ImportError:
+        pass
+    TOKEN_USAGE_DIR = ESTIMATE_DIR or args.output or BASE_OUTPUT_DIR
+    TOKEN_LEDGER.set_base(run_id=RUN_ID, builder_model=BUILDER_MODEL)
+    TOKEN_LEDGER.open_log(os.path.join(TOKEN_USAGE_DIR, f"token_calls_{RUN_ID}.jsonl"))
+    print(f"[run] id {RUN_ID}; every model call is logged as it happens to "
+          f"{TOKEN_LEDGER.jsonl_path}")
+
+    print(f"Conditions: {CONDITIONS_TO_RUN}  ->  "
+          + ", ".join(f"{c}: {output_dir_for(c)}" for c in CONDITIONS_TO_RUN))
 
     LOCAL_MODELS = {
         "mistral-7b":       "mistralai/Mistral-7B-Instruct-v0.3",
@@ -673,10 +1795,10 @@ if __name__ == "__main__":
     #     # "qwen7b_dpo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
     #     # "qwen7b_sft_r32_builder" :"/data/open-weight-llms/models/qwen-7b",
     #     "qwen7b_ipo_r32_from_sft" : "/data/open-weight-llms/models/qwen-7b",
-        
+
     #     # "qwen-14b":         "/data/open-weight-llms/models/qwen-14b",
     #     # "qwen-32b":         "/data/open-weight-llms/models/qwen-32b",
-        
+
     #     # "llama-8b":         "/data/open-weight-llms/models/llama-8b",
     #     # "llama-8b_dpo_r32_from_sft":  "/data/open-weight-llms/models/llama-8b",
     #     # "llama-8b_r32_baseline": "/data/open-weight-llms/models/llama-8b",
@@ -754,10 +1876,14 @@ if __name__ == "__main__":
     #     pt = get_part_type_for_structure(i, RUN)
     #     print(f"  structure_{i:02d} → {pt}")
 
-    def run_all_structures(director_model_name, shared_model=None, shared_tokenizer=None):
+    def run_all_structures(director_model_name, condition, shared_model=None, shared_tokenizer=None):
+        output_dir = output_dir_for(condition)
+        first_call = len(EST.calls) if EST is not None else 0
+        first_record = len(TOKEN_LEDGER.records)
+        TOKEN_LEDGER.set_base(director_model=director_model_name)   # tags every call as it is logged
         for structure_index in structure_indices:
             partType = "empty"
-            print(f"\n  [{director_model_name}] structure={structure_index}/{n_structures-1} "
+            print(f"\n  [{director_model_name} | {condition}] structure={structure_index}/{n_structures-1} "
                   f"partType={partType}")
             try:
                 results, _ = run_craft_experiments(
@@ -767,7 +1893,7 @@ if __name__ == "__main__":
                     builder_model_name=BUILDER_MODEL,
                     api_key=api_key,
                     max_turns=MAX_TURNS,
-                    output_dir=OUTPUT_DIR,
+                    output_dir=output_dir,
                     use_common_ground=False,
                     run=RUN,
                     lastPartType=partType,
@@ -777,20 +1903,38 @@ if __name__ == "__main__":
                     use_oracle=USE_ORACLE,
                     num_oracle=ORACLE_N,
                     max_tokens=args.max_tokens if args.max_tokens else MAX_TOKENS_BY_MODEL.get(director_model_name, DEFAULT_MAX_TOKENS),
+                    condition=condition,
+                    policy_scorer=POLICY_SCORER,
+                    policy_path=args.policy_path,
+                    random_seed=args.random_seed,
+                    token_estimator=EST,
+                    builder_parse_retries=args.builder_parse_retries,
+                    builder_max_consecutive_errors=args.builder_max_consecutive_errors,
+                    builder_max_tokens=args.builder_max_tokens,
+                    builder_one_line_instruction=not args.builder_no_one_line_instruction,
                 )
-                print(f"  Done [{director_model_name}] structure={structure_index} "
+                print(f"  Done [{director_model_name} | {condition}] structure={structure_index} "
                       f"games={len(results['games'])}")
             except Exception as e:
                 import traceback
-                print(f"  FAILED [{director_model_name}] structure={structure_index}: {e}")
+                print(f"  FAILED [{director_model_name} | {condition}] structure={structure_index}: {e}")
                 traceback.print_exc()
                 continue
+        if EST is not None:
+            for c in EST.calls[first_call:]:
+                c["director_model"] = director_model_name
+                c["condition"] = condition
+        for r in TOKEN_LEDGER.records[first_record:]:
+            r["director_model"] = director_model_name
+            r["builder_model"] = BUILDER_MODEL
 
     # ── Run ───────────────────────────────────────────────────
     if DIRECTOR_MODE == "api":
         for model_name in models_to_run_api:
             print(f"\n{'='*60}\nAPI DIRECTOR: {model_name}\n{'='*60}")
-            run_all_structures(director_model_name=model_name)
+            for condition in CONDITIONS_TO_RUN:
+                print(f"\n{'-'*60}\nCONDITION: {condition}\n{'-'*60}")
+                run_all_structures(director_model_name=model_name, condition=condition)
 
     elif DIRECTOR_MODE == "local":
         for model_name, model_path in models_to_run_local.items():
@@ -805,11 +1949,15 @@ if __name__ == "__main__":
                 print(f"FAILED to load {model_name}: {e}")
                 continue
 
-            run_all_structures(
-                director_model_name=model_name,
-                shared_model=shared_model,
-                shared_tokenizer=shared_tokenizer,
-            )
+            # All conditions reuse the loaded model, so it is loaded only once.
+            for condition in CONDITIONS_TO_RUN:
+                print(f"\n{'-'*60}\nCONDITION: {condition}\n{'-'*60}")
+                run_all_structures(
+                    director_model_name=model_name,
+                    condition=condition,
+                    shared_model=shared_model,
+                    shared_tokenizer=shared_tokenizer,
+                )
 
             print(f"\nReleasing {model_name} from memory...")
             try:
@@ -820,5 +1968,61 @@ if __name__ == "__main__":
             gc.collect()
             torch.cuda.empty_cache()
             print("GPU memory released.\n")
+
+    if EST is not None:
+        estimate = summarize_estimate(EST)
+        estimate["sample"] = {
+            "director_models": list(models_to_run_api) or list(models_to_run_local),
+            "builder": BUILDER_MODEL, "conditions": CONDITIONS_TO_RUN,
+            "structures": structure_indices, "max_turns": MAX_TURNS, "builder_tools": USE_TOOLS,
+            "estimate_backend": args.estimate_backend,
+            "estimate_model": args.estimate_model if args.estimate_backend == "ollama" else None,
+        }
+        os.makedirs(ESTIMATE_DIR, exist_ok=True)
+        est_path = os.path.join(ESTIMATE_DIR, f"token_estimate_{RUN_ID}.json")
+        with open(est_path, "w") as f:
+            json.dump(estimate, f, indent=2)
+        print("\n" + "=" * 60 + "\nTOKEN ESTIMATE (tokens already scaled by CORRECTION)\n" + "=" * 60)
+        print(json.dumps(estimate, indent=2))
+        print(f"\nSample: {len(structure_indices)} structure(s) x {len(CONDITIONS_TO_RUN)} condition(s) "
+              f"x {len(estimate['sample']['director_models'])} director model(s), up to {MAX_TURNS} turns. "
+              f"Scale by (full run size / sample size). Saved to {est_path}")
+
+    # Run-level token usage, written for every run (real or estimate).
+    if TOKEN_LEDGER.records:
+        usage = {
+            "note": ("source=api: counts reported by the provider; source=estimate: the local "
+                     "estimator's raw counts, with *_corrected scaled by token_estimator.CORRECTION; "
+                     "source=local_tokenizer: counted with the local director's tokenizer."),
+            "run_id": RUN_ID,
+            "call_log": TOKEN_LEDGER.jsonl_path,
+            "sample": {"director_models": list(models_to_run_api) or list(models_to_run_local),
+                       "builder": BUILDER_MODEL, "conditions": CONDITIONS_TO_RUN,
+                       "structures": structure_indices, "max_turns": MAX_TURNS,
+                       "token_estimate": bool(args.token_estimate)},
+            "totals": summarize_token_records(TOKEN_LEDGER.records, ()).get("all", {}),
+            "by_role": summarize_token_records(TOKEN_LEDGER.records, ("role",)),
+            "by_director_model_condition_role": summarize_token_records(
+                TOKEN_LEDGER.records, ("director_model", "condition", "role")),
+            "by_role_model_source": summarize_token_records(TOKEN_LEDGER.records, ("role", "model", "source")),
+        }
+        os.makedirs(TOKEN_USAGE_DIR, exist_ok=True)
+        usage_path = os.path.join(TOKEN_USAGE_DIR, f"token_usage_{RUN_ID}.json")
+        with open(usage_path, "w") as f:
+            json.dump(usage, f, indent=2)
+        print("\n" + "=" * 60 + "\nTOKEN USAGE (all calls this run)\n" + "=" * 60)
+        for role, b in sorted(usage["by_role"].items()):
+            print(f"  {role:<14} calls={b['calls']:<5} input={b.get('input_tokens', 0):<10} "
+                  f"output={b.get('output_tokens', 0):<10}"
+                  + (f" (corrected: {b.get('input_tokens_corrected', 0)} / {b.get('output_tokens_corrected', 0)})"
+                     if 'input_tokens_corrected' in b else "")
+                  + (f" calls_without_usage={b['calls_without_usage']}" if b['calls_without_usage'] else ""))
+        if args.prompt_cache:
+            for role, b in sorted(usage["by_role"].items()):
+                rd = b.get("cache_read_input_tokens", 0); wr = b.get("cache_creation_input_tokens", 0)
+                tot = b.get("input_tokens_total", 0) or 1
+                print(f"  [cache] {role:<12} read={rd:<9} write={wr:<9} "
+                      f"({100 * rd / tot:.0f}% of input read from cache)")
+        print(f"  Saved to {usage_path}")
 
     print("All done.")

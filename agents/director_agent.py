@@ -1,4 +1,3 @@
-
 import copy
 import json
 import random
@@ -25,7 +24,6 @@ try:
 except ImportError:
     HF_AVAILABLE = False
   
-
 # Worked example of the three directors' bottom-layer views, shown in the director prompt.
 # ORIGINAL: as in the original CRAFT code -- D2's and D3's lists are in the reversed order the
 #   original run_craft.py gave them (consistent with each other only under that reversal).
@@ -34,6 +32,10 @@ except ImportError:
 BOTTOM_LAYER_EXAMPLE_ORIGINAL = '    GIVEN THE FOLLOWING VIEWS OF THE BOTTOM LAYER (row_0 in the JSON):\n        D1\'s row_0:[\n        {\n            "color": "yellow",\n            "size": 1\n        },\n        {\n            "color": "green",\n            "size": 1\n        },\n        {\n            "color": "orange",\n            "size": 1\n        }]\n        D2\'s row_0:[\n        {\n            "color": "blue",\n            "size": 1\n        },\n        {\n            "color": "yellow",\n            "size": 2\n        },\n        {\n            "color": "yellow",\n            "size": 2\n        }]\n        D3\'s row_0:[\n        {\n            "color": "green",\n            "size": 2\n        },\n        {\n            "color": "green",\n            "size": 2\n        },\n        {\n            "color": "blue",\n            "size": 1\n        }\n'
 BOTTOM_LAYER_EXAMPLE_FIXED = '    GIVEN THE FOLLOWING VIEWS OF THE BOTTOM LAYER (row_0 in the JSON):\n        D1\'s row_0:[\n        {\n            "color": "yellow",\n            "size": 1\n        },\n        {\n            "color": "green",\n            "size": 1\n        },\n        {\n            "color": "orange",\n            "size": 1\n        }]\n        D2\'s row_0:[\n        {\n            "color": "yellow",\n            "size": 2\n        },\n        {\n            "color": "yellow",\n            "size": 2\n        },\n        {\n            "color": "blue",\n            "size": 1\n        }]\n        D3\'s row_0:[\n        {\n            "color": "blue",\n            "size": 1\n        },\n        {\n            "color": "green",\n            "size": 2\n        },\n        {\n            "color": "green",\n            "size": 2\n        }\n'
 
+# Local models served by Ollama's OpenAI-compatible endpoint (e.g. qwen2.5:7b-instruct).
+# Same routing rule as the Builder (agents/builder_agent.py).
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_MODEL_PREFIXES = ("qwen", "llama", "mistral", "gemma", "deepseek", "phi")
 
 class DirectorAgent:
     """Director agent that supports both API and local models"""
@@ -109,6 +111,10 @@ class DirectorAgent:
                     api_key=os.getenv("GEMINI_API_KEY"),
                     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
                 )
+            elif self.provider == "ollama":
+                # Uses _generate_with_openai unchanged (same system prompt,
+                # temperature 0.7, max_tokens) against the local Ollama server.
+                self.client = OpenAI(api_key="ollama", base_url=OLLAMA_BASE_URL)
             else:
                 self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
             self.local_model = None
@@ -124,11 +130,16 @@ class DirectorAgent:
         #     self.local_tokenizer = local_tokenizer
 
     def _get_provider(self, model_name: str) -> str:
+        forced = os.environ.get("DIRECTOR_PROVIDER")
+        if forced:
+            return forced
         name = model_name.lower()
         if "claude" in name:
             return "anthropic"
         elif "gemini" in name:
             return "gemini"
+        elif name.startswith(OLLAMA_MODEL_PREFIXES) or ":" in name:
+            return "ollama"
         else:
             return "openai"
 
