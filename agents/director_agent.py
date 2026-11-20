@@ -24,12 +24,18 @@ try:
 except ImportError:
     HF_AVAILABLE = False
   
+# Worked example of the three directors' bottom-layer views, shown in the director prompt.
+# ORIGINAL: as in the original CRAFT code -- D2's and D3's lists are in the reversed order the
+#   original run_craft.py gave them (consistent with each other only under that reversal).
+# FIXED (--ref_fix): D2's and D3's lists in the left-to-right order the prompt states, so the shared
+#   corners agree: (0,0) is D1's first and D2's first entry, (0,2) is D2's last and D3's first.
+BOTTOM_LAYER_EXAMPLE_ORIGINAL = '    GIVEN THE FOLLOWING VIEWS OF THE BOTTOM LAYER (row_0 in the JSON):\n        D1\'s row_0:[\n        {\n            "color": "yellow",\n            "size": 1\n        },\n        {\n            "color": "green",\n            "size": 1\n        },\n        {\n            "color": "orange",\n            "size": 1\n        }]\n        D2\'s row_0:[\n        {\n            "color": "blue",\n            "size": 1\n        },\n        {\n            "color": "yellow",\n            "size": 2\n        },\n        {\n            "color": "yellow",\n            "size": 2\n        }]\n        D3\'s row_0:[\n        {\n            "color": "green",\n            "size": 2\n        },\n        {\n            "color": "green",\n            "size": 2\n        },\n        {\n            "color": "blue",\n            "size": 1\n        }\n'
+BOTTOM_LAYER_EXAMPLE_FIXED = '    GIVEN THE FOLLOWING VIEWS OF THE BOTTOM LAYER (row_0 in the JSON):\n        D1\'s row_0:[\n        {\n            "color": "yellow",\n            "size": 1\n        },\n        {\n            "color": "green",\n            "size": 1\n        },\n        {\n            "color": "orange",\n            "size": 1\n        }]\n        D2\'s row_0:[\n        {\n            "color": "yellow",\n            "size": 2\n        },\n        {\n            "color": "yellow",\n            "size": 2\n        },\n        {\n            "color": "blue",\n            "size": 1\n        }]\n        D3\'s row_0:[\n        {\n            "color": "blue",\n            "size": 1\n        },\n        {\n            "color": "green",\n            "size": 2\n        },\n        {\n            "color": "green",\n            "size": 2\n        }\n'
 
 # Local models served by Ollama's OpenAI-compatible endpoint (e.g. qwen2.5:7b-instruct).
 # Same routing rule as the Builder (agents/builder_agent.py).
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_MODEL_PREFIXES = ("qwen", "llama", "mistral", "gemma", "deepseek", "phi")
-
 
 class DirectorAgent:
     """Director agent that supports both API and local models"""
@@ -66,7 +72,8 @@ class DirectorAgent:
     }
   
     def __init__(self, director_id, use_api=True, api_key=None, model_name="gpt-4o-mini", 
-                 local_model=None, local_tokenizer=None, structure_index = None, run = None, max_tokens = 500):
+                 local_model=None, local_tokenizer=None, structure_index = None, run = None, max_tokens = 500,
+                 ref_fix=False):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.director_id = director_id
         self.use_api = use_api
@@ -75,6 +82,9 @@ class DirectorAgent:
         # self.local_model_path = local_model_path
         self.local_tokenizer = local_tokenizer
         self.max_tokens = max_tokens
+        # True: D2/D3 target views arrive in the stated left-to-right order (run_craft.py --ref_fix);
+        # False: original CRAFT behaviour (D2/D3 views reversed relative to the stated order)
+        self.ref_fix = ref_fix
         self.structure_index = structure_index
         self.run = run 
           # deterministic archetype: same structure+director+run → same archetype
@@ -170,13 +180,15 @@ class DirectorAgent:
         #     "D3": "From left to right, you see cells (2,2), (1,2), (0,2) across all layers."
         # }
 
-    # below perspective change is because directors are getting reversed views in curr and target structure views, but not in the prose in the promot in some places. causes confusion
+    # The perspective lines are the same in both modes. With --ref_fix the target views match them; in the
+    # original CRAFT mode, run_craft.py reverses D2's and D3's views, so the views disagree with these lines.
         perspective_descriptions = {
     "D1": "From left to right, you see cells (0,0), (1,0), (2,0) across all layers.",
-    # reversed presentation (matches swapped JSON)
     "D2": "From left to right, you see cells (0,0), (0,1), (0,2) across all layers.",
     "D3": "From left to right, you see cells (0,2), (1,2), (2,2) across all layers."
 }
+
+        bottom_layer_example = BOTTOM_LAYER_EXAMPLE_FIXED if self.ref_fix else BOTTOM_LAYER_EXAMPLE_ORIGINAL
 
         return f"""You are Director {self.director_id} ({self.director_id}) in a collaborative LEGO construction task.
     You are sitting around a physical board with a Builder and two other Directors.
@@ -316,47 +328,7 @@ This is the first action to align with my target view.]
 - If another director already described something visible from your side too, acknowledge in short and 
 and describe something only you can see instead.
 - One combined message, max 35 words total.
-    GIVEN THE FOLLOWING VIEWS OF THE BOTTOM LAYER (row_0 in the JSON):
-        D1's row_0:[
-        {{
-            "color": "yellow",
-            "size": 1
-        }},
-        {{
-            "color": "green",
-            "size": 1
-        }},
-        {{
-            "color": "orange",
-            "size": 1
-        }}]
-        D2's row_0:[
-        {{
-            "color": "blue",
-            "size": 1
-        }},
-        {{
-            "color": "yellow",
-            "size": 2
-        }},
-        {{
-            "color": "yellow",
-            "size": 2
-        }}]
-        D3's row_0:[
-        {{
-            "color": "green",
-            "size": 2
-        }},
-        {{
-            "color": "green",
-            "size": 2
-        }},
-        {{
-            "color": "blue",
-            "size": 1
-        }}
-VERY IMPORTANT, HERE ARE SOME NATURAL UTTERANCES WHOSE STYLE TO EMULATE:
+{bottom_layer_example}VERY IMPORTANT, HERE ARE SOME NATURAL UTTERANCES WHOSE STYLE TO EMULATE:
     [So, the second layer on top of the yellow will be orange, and then another orange, and then a yellow.]
     [And then it'll go blue, yellow, green.]
     [On top of green there goes a blue. And on top of red there goes a yellow.]
@@ -626,8 +598,8 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
                 {"role": "system", "content": f"You are Director {self.director_id} in a collaborative LEGO construction task."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
-            max_tokens=max_tokens,
+            temperature=1,
+            max_completion_tokens=max_tokens,
         )
         
         # Gemini thinking models consume tokens internally before output

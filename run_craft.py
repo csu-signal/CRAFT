@@ -814,15 +814,24 @@ def run_craft_experiments(
 
     print(f"\nLoaded: {sample['id']} (complexity={sample['complexity']})")
     print(f"Metadata: {sample['metadata']}")
+    
+    # the dataset's views must match the generator, whatever the mode (catches stale datasets)
+    recomputed_views = get_director_views_fn(sample["structure"])
+    assert sample["director_views"] == recomputed_views, (
+        f"director_views stored for {sample['id']} differ from get_director_views(structure)")
 
-    swapped_dir_views = {d: {row: items[::-1] for row, items in rows.items()} if d in ["D2", "D3"] else rows for d, rows in sample["director_views"].items()}
+    if REF_FIX:    # fixed: D2 and D3 get their views in the order their prompts state
+        stored_views = sample["director_views"]
+    else:           # original CRAFT behaviour: D2 and D3 rows reversed
+        stored_views = {d: ({row: items[::-1] for row, items in rows.items()} if d in ("D2", "D3") else rows)
+                        for d, rows in sample["director_views"].items()}
+
     target_structures_list = [{
         'id'            : sample['id'],
         'complexity'    : sample['complexity'],
         'structure'     : sample['structure'],
         'spans'         : target_spans,
-        'director_views': swapped_dir_views,
-
+        'director_views': stored_views,
         'metadata'      : sample['metadata']
     }]
 
@@ -842,6 +851,7 @@ def run_craft_experiments(
         'use_oracle'     : use_oracle,
         'num_oracle'     : num_oracle,
         'builder_tool_use': builder_tool_use,
+        'ref_fix'        : REF_FIX,
         'use_common_ground': use_common_ground,
         'run'            : run,
         'max_tokens'     : max_tokens,
@@ -891,8 +901,9 @@ def run_craft_experiments(
                     api_key=api_key,
                     model_name=director_model_name,
                     structure_index=structure_index,
-                    run=run,
+                    run=run,      
                     max_tokens=max_tokens,
+                    ref_fix=REF_FIX,
                 )
                 for did in ["D1", "D2", "D3"]
             }
@@ -908,6 +919,7 @@ def run_craft_experiments(
                 structure_index=structure_index,
                 run=run,
                 max_tokens=max_tokens,
+                ref_fix=REF_FIX,
             )
             for did in ["D1", "D2", "D3"]
         }
@@ -1056,12 +1068,11 @@ def run_single_game(
     recomputed = game_state.get_director_views()
     game_state.current_structure = tmp
 
-    # compare against RAW views (before swap) not swapped_dir_views
-    raw_views = {
-        d: {row: items[::-1] for row, items in rows.items()}
-        if d in ["D2", "D3"] else rows
-        for d, rows in recomputed.items()
-    }
+    if REF_FIX:
+        raw_views = recomputed
+    else:   # original mode: the target views were reversed for D2 and D3, so reverse these too
+        raw_views = {d: ({row: items[::-1] for row, items in rows.items()} if d in ("D2", "D3") else rows)
+                     for d, rows in recomputed.items()}
     compare_views("TARGET VIEW CONSISTENCY BEFORE GAME STARTS", target_director_views, raw_views)
 
 
@@ -1568,6 +1579,8 @@ if __name__ == "__main__":
                         help="Number of oracle moves to show per turn")
     parser.add_argument("--no_tools",       action="store_true",
                         help="Disable builder tool use (simulate_move)")
+    parser.add_argument("--ref_fix",       action="store_true",
+                        help="Give D2 and D3 their views in the order their prompts state")
     parser.add_argument("--builder_max_consecutive_errors", type=int, default=3,
                         help="End a game when the Builder's API call fails this many turns in a row "
                              "(failed calls, not unparseable replies). 0 = never stop.")
@@ -1657,10 +1670,12 @@ if __name__ == "__main__":
     USE_ORACLE    = args.oracle
     ORACLE_N      = args.oracle_n
     USE_TOOLS     = not args.no_tools
+    REF_FIX       = args.ref_fix
     # ── Auto-generate output dir from config ──────────────────
     oracle_tag = f"oracle{ORACLE_N}" if USE_ORACLE else "no_oracle"
     tools_tag  = "tools" if USE_TOOLS else "no_tools"
     run_tag    = f"run{RUN}"
+    fix_tag = "reffix" if REF_FIX else ""
     print(args)
 
     PROMPT_CACHE["enabled"] = bool(args.prompt_cache)
@@ -1669,7 +1684,8 @@ if __name__ == "__main__":
     BASE_OUTPUT_DIR = args.output or (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
-        f"{oracle_tag}_{tools_tag}_{run_tag}{cache_tag}")
+        f"{oracle_tag}_{tools_tag}_{fix_tag}_{run_tag}{cache_tag}")
+
     if args.prompt_cache:
         print(f"[cache] Prompt caching ON for Claude models (ttl {args.prompt_cache_ttl}): breakpoint at "
               f"the line before '{CACHE_SPLIT_MARKER}'."
@@ -1812,9 +1828,12 @@ if __name__ == "__main__":
         "gpt-4o-mini":                    2000,
         "gpt-4.1-mini":                   2000,
         "gpt-4o":                         2000,
+       " gpt-6-luna":                     2000,
         "claude-haiku-4-5":               3000,
         "claude-haiku-5-5":               3000,
         "claude-sonnet-4-6":              3000,
+        "claude-sonnet-5-5":              3000,
+        "claude-opus-5-5":                3000,
         "gemini-2.5-flash":               3000,
         "gemini-2.5-flash-lite":          2000,
         "gemini-3-flash-preview":         2000,
