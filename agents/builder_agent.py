@@ -209,6 +209,10 @@ class BuilderAgent:
         self.last_raw_text = ""         # the last reply received
         self.last_parse_failed = False  # still unparseable after all retries
         self.last_rejected = []         # every rejected reply this move, with why
+        # Optional text appended to the END of the Builder prompt (run_craft.py
+        # sets it per turn, e.g. the policy recommendation with --no_policy_filter;
+        # None = prompt unchanged). Same position as the rollout harness's note.
+        self.prompt_note = None
         if self.provider == "anthropic":
             # api_key from run_craft.py is the OpenAI key, so it is not used here.
             # Directors read CLAUDE_API_KEY; accept either name.
@@ -675,19 +679,23 @@ WORKFLOW:
             }
             
 
+    def _with_note(self, prompt):
+        note = getattr(self, "prompt_note", None)
+        return f"{prompt}\n\n{note}" if note else prompt
+
     def get_builder_prompt(self, director_discussion, current_state, available_blocks,
                        use_tools=False, max_simulations=3, oracle_moves=None, builderPromptAddin = BuilderType.Base):  # ← add
         if use_tools:
-                return self.create_builder_prompt_with_tools(
+                return self._with_note(self.create_builder_prompt_with_tools(
                     director_discussion, current_state, available_blocks,
                     max_simulations=max_simulations,
                     oracle_moves=oracle_moves, 
                     builderPromptAddin = builderPromptAddin 
-                )
-        return self.create_builder_prompt(
+                ))
+        return self._with_note(self.create_builder_prompt(
                 director_discussion, current_state, available_blocks,
                 oracle_moves=oracle_moves, builderPromptAddin = builderPromptAddin  
-            )
+            ))
 
     def _parse_reply(self, raw):
         """Move from a full model reply (the move line is extracted first)."""
@@ -747,7 +755,7 @@ WORKFLOW:
     def generate_move(self, director_discussion, current_state, available_blocks, oracle_moves=None, check_prompt_tokens = False) -> Dict:
         """Generate builder move with improved parsing"""
         try:
-            prompt = self.create_builder_prompt(director_discussion, current_state, available_blocks, oracle_moves=oracle_moves,  )
+            prompt = self._with_note(self.create_builder_prompt(director_discussion, current_state, available_blocks, oracle_moves=oracle_moves,  ))
             if check_prompt_tokens: 
                 self.compute_builder_prompt_section_lengths(prompt)
  

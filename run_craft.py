@@ -321,6 +321,7 @@ class TokenLedger:
         self.context = {}
         self.base = {}            # run-level tags: run_id, director_model, builder_model
         self.jsonl_path = None
+        self.log_paths = []       # every call-log file written this run
 
     def set_context(self, **ctx):
         self.context = ctx
@@ -329,8 +330,11 @@ class TokenLedger:
         self.base.update(tags)
 
     def open_log(self, path):
+        """Send the following calls to `path` (one log per condition/model folder)."""
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         self.jsonl_path = path
+        if path not in self.log_paths:
+            self.log_paths.append(path)
 
     def record(self, rec):
         rec = {**self.base, **self.context, **rec,
@@ -758,11 +762,20 @@ def attach_turn_tokens(turn_data, cValues, start):
         cValues[f"{label} Cache Write Tokens"] = b.get("cache_creation_input_tokens", 0)
 
 
-def condition_tag(condition, policy_path=None, random_seed=0):
+# --no_policy_filter: in the policy and random conditions the Builder hears ALL
+# speaking directors, and the chosen director is named in a recommendation at
+# the end of its prompt (the rollout harness's 'recommend' mode). With the
+# filter on (default), the Builder hears only the chosen director.
+DEFAULT_RECOMMEND_TEMPLATE = ("RECOMMENDATION: Prioritize {director}'s instruction. "
+                              "Use the other directors' messages to resolve ambiguity.")
+
+
+def condition_tag(condition, policy_path=None, random_seed=0, policy_filter=True):
+    rec = "" if policy_filter else "-nofilter"     # --no_policy_filter
     if condition == "policy":
-        return f"cond-policy-{Path(policy_path).stem}"
+        return f"cond-policy-{Path(policy_path).stem}{rec}"
     if condition == "random":
-        return f"cond-random-rseed{random_seed}"
+        return f"cond-random-rseed{random_seed}{rec}"
     return "cond-baseline"
 
 
@@ -792,6 +805,8 @@ def run_craft_experiments(
     policy_scorer = None,
     policy_path = None,
     random_seed = 0,
+    policy_filter = True,
+    recommend_template = DEFAULT_RECOMMEND_TEMPLATE,
     token_estimator = None,
     builder_parse_retries = 2,
     builder_max_consecutive_errors = 3,
@@ -864,6 +879,8 @@ def run_craft_experiments(
         'policy_loader': getattr(policy_scorer, 'loader', None) if policy_scorer else None,
         'policy_arch': getattr(policy_scorer, 'arch', None) if policy_scorer else None,   # incl. recov_head / recov_weight
         'random_seed'    : random_seed,
+        'policy_filter'  : policy_filter,
+        'recommend_template': None if policy_filter else recommend_template,
         'builder_parse_retries': builder_parse_retries,
         'builder_max_consecutive_errors': builder_max_consecutive_errors,
         'builder_max_tokens': builder_max_tokens,       # None = provider default (see BuilderAgent)
@@ -981,6 +998,8 @@ def run_craft_experiments(
                 condition = condition,
                 policy_selector = policy_selector,
                 random_seed = random_seed,
+                policy_filter = policy_filter,
+                recommend_template = recommend_template,
                 builder_max_consecutive_errors = builder_max_consecutive_errors,
             )
         except Exception as e:
@@ -1040,6 +1059,8 @@ def run_single_game(
     condition = "baseline",
     policy_selector = None,
     random_seed = 0,
+    policy_filter = True,
+    recommend_template = DEFAULT_RECOMMEND_TEMPLATE,
     builder_max_consecutive_errors = 3,
 
 ):
@@ -1252,30 +1273,44 @@ def run_single_game(
                 selection_counts['policy_equals_random'] += int(policy_choice == random_choice)
 
             # What the Builder actually hears this turn.
+            chosen = None
             if condition == "policy" and policy_choice is not None:
-                builder_discussion = selection['policy']['utterance']
-                builder_heard = [policy_choice]
-                used_method = 'policy'
+                chosen, used_method = policy_choice, 'policy'
             elif condition == "random" and random_choice is not None:
-                builder_discussion = selection['random']['utterance']
-                builder_heard = [random_choice]
-                used_method = 'random'
+                chosen, used_method = random_choice, 'random'
             else:
-                # 'baseline', or no director spoke (nothing to select from)
+                used_method = 'baseline'   # 'baseline', or no director spoke (nothing to select from)
+            builder_note = None
+            if chosen is not None and policy_filter:
+                # Filter (default): only the chosen director's message.
+                builder_discussion = selection[used_method]['utterance']
+                builder_heard = [chosen]
+            elif chosen is not None:
+                # --no_policy_filter: everyone, plus a recommendation at the end of the prompt.
                 builder_discussion = director_discussion_full
                 builder_heard = list(speaking)
-                used_method = 'baseline'
+                builder_note = recommend_template.format(director=chosen)
+            else:
+                builder_discussion = director_discussion_full
+                builder_heard = list(speaking)
+            builder_agent.prompt_note = builder_note
             if not speaking:
                 selection_counts['no_director_spoke'] += 1
             selection_counts['turns_selected'] += 1
-            selection_counts['builder_heard_single_director'] += int(used_method != 'baseline')
+            selection_counts['builder_heard_single_director'] += int(chosen is not None and policy_filter)
+            selection_counts['builder_given_recommendation'] = (
+                selection_counts.get('builder_given_recommendation', 0) + int(builder_note is not None))
 
             selection['used_method'] = used_method
+            selection['policy_filter'] = policy_filter
+            selection['chosen_director'] = chosen
             selection['builder_heard'] = builder_heard
             selection['builder_input'] = builder_discussion
+            selection['builder_note'] = builder_note
             turn_data['utterance_selection'] = selection
             turn_data['director_discussion_used'] = builder_discussion
-            print(f"  [SELECTION] condition={condition} used={used_method} builder hears {builder_heard}")
+            print(f"  [SELECTION] condition={condition} used={used_method} builder hears {builder_heard}"
+                  + (f" + recommendation of {chosen}" if builder_note else ""))
 
             oracle_moves = None
             if use_oracle:
@@ -1371,7 +1406,7 @@ def run_single_game(
                 consecutive_builder_errors = 0
             cValues['Transcription'] = director_discussion_full
             cValues['Condition'] = condition
-            cValues['Selection Method'] = used_method
+            cValues['Selection Method'] = used_method + ("" if policy_filter or used_method == 'baseline' else " (recommend)")
             cValues['Builder Heard'] = ",".join(builder_heard)
             cValues['Policy Choice'] = policy_choice if policy_choice else "N/A"
             cValues['Random Choice'] = random_choice if random_choice else "N/A"
@@ -1481,7 +1516,7 @@ def run_single_game(
             # which director the Builder heard alone, if any).
             if policy_selector is not None:
                 policy_selector.commit(
-                    followed=builder_heard[0] if used_method != 'baseline' else None,
+                    followed=chosen,
                     board_after=game_state.current_structure,
                     move_failed=move_failed,
                 )
@@ -1627,6 +1662,12 @@ if __name__ == "__main__":
                         help="Override FEATURE_TIER for the policy (must match training).")
     parser.add_argument("--policy_allow_silent", action="store_true",
                         help="Let the policy pick a silent director (default: best-scoring director who spoke).")
+    parser.add_argument("--no_policy_filter", action="store_true",
+                        help="Policy/random conditions: the Builder hears ALL speaking directors, with the "
+                             "chosen director named in a recommendation at the end of its prompt, instead of "
+                             "hearing only the chosen director (the default filter). Baseline is unaffected.")
+    parser.add_argument("--recommend_template", type=str, default=DEFAULT_RECOMMEND_TEMPLATE,
+                        help="(--no_policy_filter) Recommendation text; must contain {director}.")
     parser.add_argument("--random_seed",    type=int, default=0,
                         help="Seed for the random condition's draws (combined with structure, run and turn).")
     parser.add_argument("--token_estimate", action="store_true",
@@ -1684,7 +1725,8 @@ if __name__ == "__main__":
     BASE_OUTPUT_DIR = args.output or (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
-        f"{oracle_tag}_{tools_tag}_{fix_tag}_{run_tag}{cache_tag}")
+        f"{oracle_tag}_{tools_tag}_{fix_tag}_{run_tag}{cache_tag}"
+        f"{'_nofilter' if args.no_policy_filter else ''}")
 
     if args.prompt_cache:
         print(f"[cache] Prompt caching ON for Claude models (ttl {args.prompt_cache_ttl}): breakpoint at "
@@ -1701,6 +1743,11 @@ if __name__ == "__main__":
         raise ValueError(f"Unknown condition(s) {bad}. Choose from {list(CONDITIONS)}")
     if "policy" in CONDITIONS_TO_RUN and not args.policy_path:
         raise ValueError("The 'policy' condition needs --policy_path.")
+    if "{director}" not in args.recommend_template:
+        raise ValueError("--recommend_template must contain {director}.")
+    if args.no_policy_filter:
+        print("[selection] --no_policy_filter: in the policy/random conditions the Builder hears every director, "
+              "plus a recommendation naming the chosen one at the end of its prompt.")
 
     POLICY_SCORER = None
     if args.policy_path:
@@ -1712,7 +1759,8 @@ if __name__ == "__main__":
 
     def output_dir_for(condition):
         """'baseline' without --output keeps the original folder, so existing runs line up."""
-        tag = condition_tag(condition, args.policy_path, args.random_seed)
+        tag = condition_tag(condition, args.policy_path, args.random_seed,
+                            policy_filter=not args.no_policy_filter)
         if args.output:
             return os.path.join(args.output, tag)
         out = BASE_OUTPUT_DIR if condition == "baseline" else f"{BASE_OUTPUT_DIR}_{tag}"
@@ -1772,9 +1820,8 @@ if __name__ == "__main__":
         pass
     TOKEN_USAGE_DIR = ESTIMATE_DIR or args.output or BASE_OUTPUT_DIR
     TOKEN_LEDGER.set_base(run_id=RUN_ID, builder_model=BUILDER_MODEL)
-    TOKEN_LEDGER.open_log(os.path.join(TOKEN_USAGE_DIR, f"token_calls_{RUN_ID}.jsonl"))
-    print(f"[run] id {RUN_ID}; every model call is logged as it happens to "
-          f"{TOKEN_LEDGER.jsonl_path}")
+    print(f"[run] id {RUN_ID}; every model call is logged as it happens to token_calls_{RUN_ID}.jsonl "
+          f"in each condition's model folder, next to its game files")
 
     print(f"Conditions: {CONDITIONS_TO_RUN}  ->  "
           + ", ".join(f"{c}: {output_dir_for(c)}" for c in CONDITIONS_TO_RUN))
@@ -1881,6 +1928,11 @@ if __name__ == "__main__":
         first_call = len(EST.calls) if EST is not None else 0
         first_record = len(TOKEN_LEDGER.records)
         TOKEN_LEDGER.set_base(director_model=director_model_name)   # tags every call as it is logged
+        # This condition's token files live with its games:
+        #   <condition folder>/<director>_<builder>/token_calls_<run_id>.jsonl
+        #   <condition folder>/<director>_<builder>/token_usage_<run_id>.json
+        combo_dir = os.path.join(output_dir, f"{director_model_name}_{BUILDER_MODEL}")
+        TOKEN_LEDGER.open_log(os.path.join(combo_dir, f"token_calls_{RUN_ID}.jsonl"))
         for structure_index in structure_indices:
             partType = "empty"
             print(f"\n  [{director_model_name} | {condition}] structure={structure_index}/{n_structures-1} "
@@ -1907,6 +1959,8 @@ if __name__ == "__main__":
                     policy_scorer=POLICY_SCORER,
                     policy_path=args.policy_path,
                     random_seed=args.random_seed,
+                    policy_filter=not args.no_policy_filter,
+                    recommend_template=args.recommend_template,
                     token_estimator=EST,
                     builder_parse_retries=args.builder_parse_retries,
                     builder_max_consecutive_errors=args.builder_max_consecutive_errors,
@@ -1924,9 +1978,24 @@ if __name__ == "__main__":
             for c in EST.calls[first_call:]:
                 c["director_model"] = director_model_name
                 c["condition"] = condition
-        for r in TOKEN_LEDGER.records[first_record:]:
+        cond_records = TOKEN_LEDGER.records[first_record:]
+        for r in cond_records:
             r["director_model"] = director_model_name
             r["builder_model"] = BUILDER_MODEL
+        if cond_records:
+            cond_usage = {
+                "run_id": RUN_ID, "condition": condition, "director_model": director_model_name,
+                "builder_model": BUILDER_MODEL, "structures": structure_indices,
+                "call_log": TOKEN_LEDGER.jsonl_path,
+                **token_usage_block(cond_records),
+            }
+            cond_path = os.path.join(combo_dir, f"token_usage_{RUN_ID}.json")
+            with open(cond_path, "w") as f:
+                json.dump(cond_usage, f, indent=2)
+            tot = cond_usage["totals"]
+            print(f"  [tokens] {condition} ({director_model_name}): {tot.get('calls', 0)} calls, "
+                  f"{tot.get('input_tokens_total', tot.get('input_tokens', 0))} in / "
+                  f"{tot.get('output_tokens', 0)} out -> {cond_path}")
 
     # ── Run ───────────────────────────────────────────────────
     if DIRECTOR_MODE == "api":
@@ -1995,7 +2064,8 @@ if __name__ == "__main__":
                      "estimator's raw counts, with *_corrected scaled by token_estimator.CORRECTION; "
                      "source=local_tokenizer: counted with the local director's tokenizer."),
             "run_id": RUN_ID,
-            "call_log": TOKEN_LEDGER.jsonl_path,
+            "call_logs": TOKEN_LEDGER.log_paths,       # one per condition/model folder
+            "by_condition_role": summarize_token_records(TOKEN_LEDGER.records, ("condition", "role")),
             "sample": {"director_models": list(models_to_run_api) or list(models_to_run_local),
                        "builder": BUILDER_MODEL, "conditions": CONDITIONS_TO_RUN,
                        "structures": structure_indices, "max_turns": MAX_TURNS,
