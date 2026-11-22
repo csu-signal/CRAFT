@@ -177,6 +177,27 @@ def is_parse_failure(move) -> bool:
     return str(move.get("clarification", "")).startswith(NON_MODEL_CLARIFY_PREFIXES)
 
 
+# ── Configuration errors ───────────────────────────────────────
+# A wrong model name, a bad API key or a missing endpoint will fail on every
+# call, so these are re-raised instead of being turned into a CLARIFY: a
+# misconfigured run stops at once rather than playing every turn without a Builder.
+_CONFIG_ERROR_TYPES = ("NotFoundError", "AuthenticationError", "PermissionDeniedError")
+_CONFIG_ERROR_TEXT = ("model_not_found", "not_found_error", "does not exist", "invalid x-api-key",
+                      "invalid api key", "incorrect api key", "authentication_error",
+                      "could not resolve authentication method")
+
+
+def is_config_error(exc) -> bool:
+    """True for model-not-found / authentication / permission / 404 errors."""
+    if type(exc).__name__ in _CONFIG_ERROR_TYPES:
+        return True
+    status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    if status in (401, 403, 404):
+        return True
+    text = str(exc).lower()
+    return any(t in text for t in _CONFIG_ERROR_TEXT)
+
+
 def builder_provider(model_name: str) -> str:
     """Which API serves this Builder model. Set BUILDER_PROVIDER to override."""
     forced = os.environ.get("BUILDER_PROVIDER")
@@ -802,6 +823,10 @@ WORKFLOW:
                                         max_tokens=self.max_output_tokens)
 
         except Exception as e:
+            if is_config_error(e):
+                print(f"  [builder] CONFIGURATION ERROR ({type(e).__name__}): {e} -- stopping instead of "
+                      f"recording a clarification")
+                raise
             self.last_parse_failed = True
             return {"action": "clarify", "clarification": f"Error in move generation: {str(e)}"}
 

@@ -56,6 +56,11 @@ from agents.environment import (
 )
 from agents.director_agent import DirectorAgent
 from agents.builder_agent import BuilderAgent, BuilderType
+try:
+    from agents.builder_agent import is_config_error
+except ImportError:   # an older builder_agent.py without it: never treat errors as config errors
+    def is_config_error(e):
+        return False
 from agents.oracle import enumerate_correct_actions
 import inspect
 import time
@@ -126,6 +131,29 @@ SILENT_MESSAGES = {"", "no message provided", "none", "null", "n/a"}
 
 def is_silent_message(text) -> bool:
     return (str(text or "")).strip().lower() in SILENT_MESSAGES
+
+
+def unusable_reason(resp) -> Optional[str]:
+    """
+    Why a director's reply can't be used this turn, or None if it can.
+    Applied before selection, so baseline, policy, random and the recommendation
+    never pick a broken message: refused, generation error, silent/empty,
+    5 characters or fewer, or only a tag fragment (starts with '<').
+    """
+    if not isinstance(resp, dict):
+        return "missing"
+    if resp.get("refused"):
+        return "refused"
+    if resp.get("generation_error"):
+        return "generation_error"
+    text = str(resp.get("public_message") or "").strip()
+    if is_silent_message(text):
+        return "silent"
+    if text.startswith("<"):
+        return "tag_fragment"
+    if len(text) <= 5:
+        return "too_short"
+    return None
 
 
 def random_pick(seed, *identity, pool: List[str]) -> Optional[str]:
@@ -372,25 +400,39 @@ def usage_from_response(resp, style):
     """Token counts and stop reason from an OpenAI / Anthropic / Gemini response."""
     if style == "anthropic":
         u = _get(resp, "usage")
+        sd = _get(resp, "stop_details")
+        if sd is None:   # older SDKs keep unknown response fields in model_extra
+            sd = (_get(resp, "model_extra") or {}).get("stop_details") if isinstance(_get(resp, "model_extra"), dict) else None
+        stop = _get(resp, "stop_reason")
         return {"input_tokens": _int(_get(u, "input_tokens")),
                 "output_tokens": _int(_get(u, "output_tokens")),
                 "cache_read_input_tokens": _int(_get(u, "cache_read_input_tokens")),
                 "cache_creation_input_tokens": _int(_get(u, "cache_creation_input_tokens")),
-                "finish_reason": _get(resp, "stop_reason")}
+                "finish_reason": stop,
+                "stop_reason": stop,
+                "refusal_category": _get(sd, "category") or _get(sd, "type"),
+                "refusal_explanation": _get(sd, "explanation") or _get(sd, "message")}
     if style == "gemini":
         u = _get(resp, "usage_metadata")
         cands = _get(resp, "candidates") or []
+        fr = str(_get(cands[0], "finish_reason")) if cands else None
+        blocked = bool(fr) and any(k in fr for k in ("SAFETY", "PROHIBITED", "BLOCKLIST", "SPII"))
         return {"input_tokens": _int(_get(u, "prompt_token_count")),
                 "output_tokens": _int(_get(u, "candidates_token_count")),
                 "thinking_tokens": _int(_get(u, "thoughts_token_count")),
-                "finish_reason": str(_get(cands[0], "finish_reason")) if cands else None}
+                "finish_reason": fr, "stop_reason": fr,
+                "refusal_category": fr if blocked else None, "refusal_explanation": None}
     u = _get(resp, "usage")
     choices = _get(resp, "choices") or []
+    fr = _get(choices[0], "finish_reason") if choices else None
+    refusal = _get(choices[0], "message", "refusal") if choices else None
     return {"input_tokens": _int(_get(u, "prompt_tokens")),
             "output_tokens": _int(_get(u, "completion_tokens")),
             "cache_read_input_tokens": _int(_get(u, "prompt_tokens_details", "cached_tokens")),
             "thinking_tokens": _int(_get(u, "completion_tokens_details", "reasoning_tokens")),
-            "finish_reason": _get(choices[0], "finish_reason") if choices else None}
+            "finish_reason": fr, "stop_reason": fr,
+            "refusal_category": "content_filter" if fr == "content_filter" else ("refusal" if refusal else None),
+            "refusal_explanation": refusal}
 
 
 # ─────────────────────────────────────────
@@ -867,6 +909,7 @@ def run_craft_experiments(
         'num_oracle'     : num_oracle,
         'builder_tool_use': builder_tool_use,
         'ref_fix'        : REF_FIX,
+        'director_format': DIRECTOR_FORMAT,
         'use_common_ground': use_common_ground,
         'run'            : run,
         'max_tokens'     : max_tokens,
@@ -921,6 +964,7 @@ def run_craft_experiments(
                     run=run,      
                     max_tokens=max_tokens,
                     ref_fix=REF_FIX,
+                    director_format=DIRECTOR_FORMAT,
                 )
                 for did in ["D1", "D2", "D3"]
             }
@@ -937,6 +981,7 @@ def run_craft_experiments(
                 run=run,
                 max_tokens=max_tokens,
                 ref_fix=REF_FIX,
+                director_format=DIRECTOR_FORMAT,
             )
             for did in ["D1", "D2", "D3"]
         }
@@ -1003,6 +1048,8 @@ def run_craft_experiments(
                 builder_max_consecutive_errors = builder_max_consecutive_errors,
             )
         except Exception as e:
+            if is_config_error(e):
+                raise
             print(f"Error in structure {idx}: {e}")
             game_result = {
                 'structure_id': structure_data['id'],
@@ -1214,8 +1261,23 @@ def run_single_game(
                 # print(f"  {did} INTENT: {intent}")
             turn_data['director_responses'] = director_responses
 
+            # ── Unusable director replies count as silent ─────
+            # Before any selection: refused, errored, empty, <=5 characters or
+            # tag-fragment replies are removed, so neither the baseline discussion
+            # nor the policy / random / recommendation can pick them.
+            unusable = {}
+            for did, r in director_responses.items():
+                why = unusable_reason(r)
+                if why and why != "silent":
+                    unusable[did] = why
+                    r['unusable_reason'] = why
+            if unusable:
+                print(f"  [directors] treated as silent this turn: "
+                      + ", ".join(f"{d} ({w})" for d, w in sorted(unusable.items())))
+            turn_data['unusable_directors'] = unusable
+
             def is_validResponse(val):
-                return val[1]['public_message'] != "No message provided"
+                return unusable_reason(val[1]) is None
 
             # ── Builder ───────────────────────────────────────
             director_discussion_full = "\n".join(
@@ -1225,10 +1287,11 @@ def run_single_game(
 
             # ── Utterance selection ───────────────────────────
             # director_order samples with replacement, so a director can be
-            # missing this turn; missing and silent directors can't be picked.
+            # missing this turn; missing, silent and unusable directors can't be picked.
             messages = {d: (director_responses[d]['public_message'] if d in director_responses else "")
                         for d in DIRECTOR_IDS}
-            speaking = [d for d in DIRECTOR_IDS if not is_silent_message(messages[d])]
+            speaking = [d for d in DIRECTOR_IDS
+                        if d in director_responses and unusable_reason(director_responses[d]) is None]
 
             selection = {
                 'condition': condition,
@@ -1548,6 +1611,8 @@ def run_single_game(
             print(correctness)
 
         except Exception as e:
+            if is_config_error(e):
+                raise    # misconfigured model / key: stop the whole run, don't play on
             print(f"  Error turn {turn+1}: {e}")
             turn_data['error'] = str(e)
             attach_turn_tokens(turn_data, cValues, turn_token_start)
@@ -1616,6 +1681,9 @@ if __name__ == "__main__":
                         help="Disable builder tool use (simulate_move)")
     parser.add_argument("--ref_fix",       action="store_true",
                         help="Give D2 and D3 their views in the order their prompts state")
+    parser.add_argument("--director_format", choices=["think", "message"], default="think",
+                        help="Director reply format: 'think' (default; <think> + <message>, as in earlier runs) "
+                             "or 'message' (a <message> block only; avoids <think>-triggered refusals).")
     parser.add_argument("--builder_max_consecutive_errors", type=int, default=3,
                         help="End a game when the Builder's API call fails this many turns in a row "
                              "(failed calls, not unparseable replies). 0 = never stop.")
@@ -1712,11 +1780,18 @@ if __name__ == "__main__":
     ORACLE_N      = args.oracle_n
     USE_TOOLS     = not args.no_tools
     REF_FIX       = args.ref_fix
+    DIRECTOR_FORMAT = args.director_format
+    # The Builder must be the version with provider routing (Claude / Ollama / OpenAI).
+    import agents.builder_agent as _builder_module
+    if not hasattr(_builder_module, "builder_provider"):
+        raise SystemExit(f"agents/builder_agent.py at {_builder_module.__file__} is an old version without "
+                         f"provider routing (no builder_provider). Replace it with the updated file.")
     # ── Auto-generate output dir from config ──────────────────
     oracle_tag = f"oracle{ORACLE_N}" if USE_ORACLE else "no_oracle"
     tools_tag  = "tools" if USE_TOOLS else "no_tools"
     run_tag    = f"run{RUN}"
-    fix_tag = "reffix" if REF_FIX else ""
+    fix_tag = "_reffix" if REF_FIX else ""
+    format_tag = "_dfmt-message" if DIRECTOR_FORMAT == "message" else ""   # 'think' keeps the old names
     print(args)
 
     PROMPT_CACHE["enabled"] = bool(args.prompt_cache)
@@ -1725,7 +1800,7 @@ if __name__ == "__main__":
     BASE_OUTPUT_DIR = args.output or (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
-        f"{oracle_tag}_{tools_tag}_{fix_tag}_{run_tag}{cache_tag}"
+        f"{oracle_tag}_{tools_tag}{fix_tag}{format_tag}_{run_tag}{cache_tag}"
         f"{'_nofilter' if args.no_policy_filter else ''}")
 
     if args.prompt_cache:
@@ -1970,6 +2045,10 @@ if __name__ == "__main__":
                 print(f"  Done [{director_model_name} | {condition}] structure={structure_index} "
                       f"games={len(results['games'])}")
             except Exception as e:
+                if is_config_error(e):
+                    print("\n" + "!" * 76 + f"\n  STOPPING RUN: configuration error ({type(e).__name__}): {e}\n"
+                          "  Check the model names and API keys before rerunning.\n" + "!" * 76)
+                    raise
                 import traceback
                 print(f"  FAILED [{director_model_name} | {condition}] structure={structure_index}: {e}")
                 traceback.print_exc()

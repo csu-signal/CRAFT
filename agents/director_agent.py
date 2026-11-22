@@ -37,6 +37,54 @@ BOTTOM_LAYER_EXAMPLE_FIXED = '    GIVEN THE FOLLOWING VIEWS OF THE BOTTOM LAYER 
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_MODEL_PREFIXES = ("qwen", "llama", "mistral", "gemma", "deepseek", "phi")
 
+# ── Response format ──────────────────────────────────────────
+# director_format="think"   (default): the original prompt with a <think> block
+#                           followed by <message>; reproduces earlier runs.
+# director_format="message": the prompt asks for a <message> block only. The
+#                           <think> block was found to trigger refusals and its
+#                           written reasoning did not improve the instructions.
+DIRECTOR_FORMATS = ("think", "message")
+SPATIAL_HEADING_THINK = "### SPATIAL ORIENTATION (use only in your thinking)"
+SPATIAL_HEADING_MESSAGE = ("### SPATIAL ORIENTATION (for your own reference; "
+                           "never put coordinates in your message)")
+MESSAGE_ONLY_RESPONSE_FORMAT = """### RESPONSE FORMAT
+
+    Reply with only this block:
+
+    <message>
+    [Natural human speech only — no coordinates, no codes, no layer numbers]
+    </message>
+
+    """
+SILENT_PUBLIC_MESSAGE = "No message provided"   # what run_craft.py treats as a silent director
+
+
+def _field(obj, *names):
+    """Attribute or dict key, also looking in a pydantic model's extra fields."""
+    for name in names:
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            obj = obj.get(name)
+        else:
+            val = getattr(obj, name, None)
+            if val is None:
+                extra = getattr(obj, "model_extra", None) or {}
+                val = extra.get(name) if isinstance(extra, dict) else None
+            obj = val
+    return obj
+
+
+def call_outcome(stop_reason=None, stop_details=None, refused=False):
+    """The per-call outcome logged in director_responses and token_usage."""
+    category = _field(stop_details, "category") or _field(stop_details, "type")
+    explanation = _field(stop_details, "explanation") or _field(stop_details, "message")
+    return {"stop_reason": None if stop_reason is None else str(stop_reason),
+            "refusal_category": None if category is None else str(category),
+            "refusal_explanation": None if explanation is None else str(explanation),
+            "refused": bool(refused)}
+
+
 class DirectorAgent:
     """Director agent that supports both API and local models"""
     TYPES = ["assertive", "cautious", "observant", "skeptical","synthesizer"]
@@ -73,7 +121,11 @@ class DirectorAgent:
   
     def __init__(self, director_id, use_api=True, api_key=None, model_name="gpt-4o-mini", 
                  local_model=None, local_tokenizer=None, structure_index = None, run = None, max_tokens = 500,
-                 ref_fix=False):
+                 ref_fix=False, director_format="think"):
+        if director_format not in DIRECTOR_FORMATS:
+            raise ValueError(f"director_format must be one of {DIRECTOR_FORMATS}, got {director_format!r}")
+        self.director_format = director_format
+        self.last_outcome = call_outcome()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.director_id = director_id
         self.use_api = use_api
@@ -190,7 +242,7 @@ class DirectorAgent:
 
         bottom_layer_example = BOTTOM_LAYER_EXAMPLE_FIXED if self.ref_fix else BOTTOM_LAYER_EXAMPLE_ORIGINAL
 
-        return f"""You are Director {self.director_id} ({self.director_id}) in a collaborative LEGO construction task.
+        prompt = f"""You are Director {self.director_id} ({self.director_id}) in a collaborative LEGO construction task.
     You are sitting around a physical board with a Builder and two other Directors.
     From where the builder sits, D1 is to their left, D2 is across from them, and D3 is to their right.
 
@@ -367,8 +419,35 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
     ### CONVERSATION SO FAR
     {conversation_history}"""
 
+        if self.director_format == "message":
+            # Message-only: no <think> block. Replace the RESPONSE FORMAT block and
+            # the spatial heading; everything else in the prompt is unchanged.
+            new_prompt, n_fmt = re.subn(r"### RESPONSE FORMAT.*?(?=### CURRENT BOARD STATE)",
+                                        lambda m: MESSAGE_ONLY_RESPONSE_FORMAT, prompt, count=1, flags=re.DOTALL)
+            if n_fmt != 1 or SPATIAL_HEADING_THINK not in new_prompt:
+                raise RuntimeError("director prompt template changed: could not apply director_format='message'")
+            prompt = new_prompt.replace(SPATIAL_HEADING_THINK, SPATIAL_HEADING_MESSAGE, 1)
+        return prompt
+
+    def parse_message_only_response(self, response_text):
+        """director_format='message': the text between <message> and </message>,
+        or, if the tags are missing, the whole reply with any tags removed."""
+        text = response_text or ""
+        m = re.search(r"<message>\s*(.*?)\s*</message>", text, re.DOTALL | re.IGNORECASE)
+        if m:
+            public = m.group(1).strip()
+        else:
+            m = re.search(r"<message>\s*(.*)", text, re.DOTALL | re.IGNORECASE)   # opened, never closed
+            public = (m.group(1) if m else text)
+            public = re.sub(r"</?[A-Za-z_][^>]*>", "", public).strip()
+        return {"internal_thinking": "",
+                "public_message": public if public else SILENT_PUBLIC_MESSAGE,
+                "raw_response": text}
+
     def parse_director_response(self, response_text):
         """Parse director response with better handling of malformed tags"""
+        if self.director_format == "message":
+            return self.parse_message_only_response(response_text)
         print("response_text initial in parse_director_response", response_text)
 
         print(f"  [PARSE DEBUG] first 50 chars: {repr(response_text[:50])}")
@@ -503,6 +582,16 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
             print(f"  [GEMINI PARSE] part extraction failed: {e}, falling back to response.text")
             visible_text = response.text
 
+        try:
+            cand = response.candidates[0]
+            fr = str(getattr(cand, "finish_reason", "") or "")
+            self.last_outcome = call_outcome(
+                fr or None, {"category": fr if any(k in fr for k in ("SAFETY", "PROHIBITED", "BLOCKLIST", "SPII")) else None,
+                             "explanation": None},
+                refused=any(k in fr for k in ("SAFETY", "PROHIBITED", "BLOCKLIST", "SPII")))
+        except Exception:  # noqa: BLE001
+            pass
+
         # run standard parser on visible text only
         parsed = self.parse_director_response(visible_text)
 
@@ -538,6 +627,7 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
         prompt = self.create_enhanced_director_prompt_with_references(
             current_view, target_view, conversation_history, available_blocks
         )
+        self.last_outcome = call_outcome()
         
         try:
             if self.use_api:
@@ -557,6 +647,14 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
                 print("full response", response_text)
                 parsed_resp = self.parse_director_response(response_text)
 
+            # Log every call's outcome; a refused reply makes the director silent.
+            parsed_resp.update(self.last_outcome)
+            parsed_resp["director_format"] = self.director_format
+            if parsed_resp.get("refused"):
+                parsed_resp["refused_text"] = parsed_resp.get("public_message")
+                parsed_resp["public_message"] = SILENT_PUBLIC_MESSAGE
+                print(f"  [{self.director_id}] REFUSED (stop_reason={parsed_resp.get('stop_reason')}, "
+                      f"category={parsed_resp.get('refusal_category')}): treated as silent this turn")
             print("parsed response", parsed_resp)
             return parsed_resp
 
@@ -566,7 +664,10 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
             return {
                 'internal_thinking': f"Error in generation: {str(e)}",
                 'public_message': "I need a moment to analyze the situation.",
-                'raw_response': ""
+                'raw_response': "",
+                **self.last_outcome,
+                'generation_error': f"{type(e).__name__}: {e}",
+                'director_format': self.director_format,
             }
 
     def _generate_with_gemini_raw(self, prompt):
@@ -609,7 +710,14 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
         
         completion = self.client.chat.completions.create(**kwargs)
         if completion and completion.choices:
-            return completion.choices[0].message.content
+            choice = completion.choices[0]
+            refusal_text = _field(choice.message, "refusal")
+            fr = getattr(choice, "finish_reason", None)
+            self.last_outcome = call_outcome(
+                fr, {"category": "content_filter" if fr == "content_filter" else None,
+                     "explanation": refusal_text},
+                refused=bool(refusal_text) or fr == "content_filter")
+            return choice.message.content or ""
         else:
             raise Exception("Empty API response")
 
@@ -634,6 +742,9 @@ VERY IMPORTANT, HERE ARE THE RULES FOR SPEAKING:
         for block in message.content:
             if block.type == "text":
                 response += block.text
+        stop_reason = getattr(message, "stop_reason", None)
+        self.last_outcome = call_outcome(stop_reason, _field(message, "stop_details"),
+                                         refused=(stop_reason == "refusal"))
         
         # check actual usage from API response metadata
         print(f"  [CLAUDE USAGE] input_tokens: {message.usage.input_tokens}")
