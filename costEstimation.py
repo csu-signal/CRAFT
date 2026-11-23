@@ -194,13 +194,17 @@ def price_call_logs(files, prices, model_tally=None):
                 except json.JSONDecodeError:
                     continue      # a line cut off by a hard kill
                 rid = rec.get("run_id") or os.path.basename(f)
-                r = runs.setdefault(rid, {"file": os.path.relpath(f), "first": rec.get("ts"), "last": rec.get("ts"),
-                                          "calls": 0, "errors": 0, "unpriced_calls": 0, "missing": set(),
+                # One row per call-log file: run_craft.py writes one per condition and director model.
+                key = (rid, rec.get("condition") or "?", rec.get("director_model") or "?", os.path.relpath(f))
+                r = runs.setdefault(key, {"run_id": rid, "condition": key[1], "director_model": key[2],
+                                          "file": os.path.relpath(f), "first": rec.get("ts"), "last": rec.get("ts"),
+                                          "calls": 0, "errors": 0, "refusals": 0, "unpriced_calls": 0, "missing": set(),
                                           "models": set(), "roles": defaultdict(lambda: [0, 0, 0.0]),
                                           "cost": 0.0, "no_cache_cost": 0.0,
                                           "summary_written": False})
                 r["last"] = rec.get("ts") or r["last"]
                 r["calls"] += 1
+                r["refusals"] += int(bool(rec.get("refused")))
                 if rec.get("error") or rec.get("input_tokens") is None:
                     r["errors"] += int(bool(rec.get("error")))
                     r["unpriced_calls"] += 1
@@ -219,23 +223,29 @@ def price_call_logs(files, prices, model_tally=None):
                 r["no_cache_cost"] += nc
                 if model_tally is not None and priced:
                     add_to_model_tally(model_tally, model, rec.get("role", "?"), cost, nc, rd, wr, calls=1)
-    for rid, r in runs.items():
+    for r in runs.values():
+        # Each log's own folder gets token_usage_<run_id>.json when that condition finishes.
         folder = os.path.dirname(r["file"])
-        r["summary_written"] = os.path.exists(os.path.join(folder, f"token_usage_{rid}.json"))
+        r["summary_written"] = os.path.exists(os.path.join(folder, f"token_usage_{r['run_id']}.json"))
     return runs
 
 
 def print_call_log_section(runs):
-    print("\nEvery logged call (token_calls_*.jsonl), by run -- compare this total with your provider's console:")
-    print(f"  {'run id':<22}{'started':<21}{'calls':>6}{'errors':>7}{'dir in/out':>20}{'builder in/out':>20}{'cost $':>10}")
-    for rid, r in sorted(runs.items(), key=lambda kv: str(kv[1]["first"])):
+    print("\nEvery logged call (token_calls_*.jsonl), by run and condition -- compare the total with your provider's console:")
+    print(f"  {'run id':<22}{'condition':<11}{'started':<21}{'calls':>6}{'errors':>7}{'refused':>8}"
+          f"{'dir in/out':>20}{'builder in/out':>20}{'cost $':>10}")
+    for _, r in sorted(runs.items(), key=lambda kv: (str(kv[1]["first"]), str(kv[1]["condition"]))):
         d, b = r["roles"].get("director", [0, 0, 0]), r["roles"].get("builder", [0, 0, 0])
-        print(f"  {rid:<22}{str(r['first'])[:19]:<21}{r['calls']:>6}{r['errors']:>7}"
+        print(f"  {r['run_id']:<22}{str(r['condition'])[:10]:<11}{str(r['first'])[:19]:<21}{r['calls']:>6}"
+              f"{r['errors']:>7}{r['refusals']:>8}"
               f"{f'{d[0]}/{d[1]}':>20}{f'{b[0]}/{b[1]}':>20}{r['cost']:>10.4f}"
-              + ("" if r["summary_written"] else "  (no end-of-run summary: interrupted?)"))
+              + ("" if r["summary_written"] else "  (no summary for this condition: interrupted?)"))
     total = sum(r["cost"] for r in runs.values())
     calls = sum(r["calls"] for r in runs.values())
-    print(f"  All logged calls: {calls} calls in {len(runs)} run(s), ${total:.4f}")
+    n_runs = len({r["run_id"] for r in runs.values()})
+    refusals = sum(r["refusals"] for r in runs.values())
+    print(f"  All logged calls: {calls} calls in {n_runs} run(s), ${total:.4f}"
+          + (f"; {refusals} refused (refused calls are still billed for the tokens they used)" if refusals else ""))
     missing = set().union(*(r["missing"] for r in runs.values())) if runs else set()
     if missing:
         print(f"  WARNING: no price for {sorted(missing)}; their calls cost $0 above.")
@@ -339,6 +349,11 @@ def main():
                                         if k not in ("director", "builder")), 6),
                 "total_cost": round(cost["total"], 6),
                 "prompt_cache": bool(info.get("prompt_cache")),
+                # Settings that change what is measured; older game files predate them.
+                "director_format": info.get("director_format") or "think",
+                "ref_fix": bool(info.get("ref_fix")),
+                "policy_filter": info.get("policy_filter", True) is not False,
+                "director_refusals": (game["token_usage"].get("by_role") or {}).get("director", {}).get("refusals", 0),
                 "cache_read_tokens": sum(v["cache_read_tokens"] for v in role.values()),
                 "cache_write_tokens": sum(v["cache_write_tokens"] for v in role.values()),
                 "no_cache_cost": round(cost["no_cache_total"], 6),
@@ -361,23 +376,27 @@ def main():
     # Per-game table
     show_cache = any(r["cache_read_tokens"] or r["cache_write_tokens"] or r["prompt_cache"] for r in rows)
     print(f"{'structure':<16}{'condition':<10}{'director':<24}{'builder':<24}{'turns':>6}"
-          f"{'dir $':>11}{'builder $':>11}{'total $':>11}")
+          f"{'dir $':>11}{'builder $':>11}{'total $':>11}{'refused':>9}")
     for r in rows:
         print(f"{str(r['structure']):<16}{str(r['condition']):<10}{str(r['director_model'])[:23]:<24}"
               f"{str(r['builder_model'])[:23]:<24}"
               f"{str(r['turns']):>6}{r['director_cost']:>11.4f}{r['builder_cost']:>11.4f}{r['total_cost']:>11.4f}"
+              f"{r['director_refusals']:>9}"
               + ("  (estimate)" if r["token_estimate"] else ""))
 
     # Totals by director model x builder model x condition
     groups = defaultdict(list)
     for r in rows:
-        groups[(r["director_model"], r["builder_model"], r["condition"], r["prompt_cache"])].append(r)
-    print("\nBy director model, builder model, condition and prompt caching:")
-    print(f"  {'director':<24}{'builder':<24}{'condition':<10}{'cache':<7}{'games':>6}{'mean $/game':>13}{'total $':>11}")
-    for (dm, bm, cond, pc), rs in sorted(groups.items(), key=lambda kv: tuple(str(x) for x in kv[0])):
+        groups[(r["director_model"], r["builder_model"], r["condition"], r["prompt_cache"],
+                r["director_format"], r["ref_fix"], r["policy_filter"])].append(r)
+    print("\nBy models, condition and settings (runs with different settings are never averaged together):")
+    print(f"  {'director':<24}{'builder':<24}{'condition':<10}{'cache':<7}{'format':<9}{'ref_fix':<9}{'filter':<8}"
+          f"{'games':>6}{'mean $/game':>13}{'total $':>11}{'refused':>9}")
+    for (dm, bm, cond, pc, fmt, rf, pf), rs in sorted(groups.items(), key=lambda kv: tuple(str(x) for x in kv[0])):
         tot = sum(r["total_cost"] for r in rs)
-        print(f"  {str(dm)[:23]:<24}{str(bm)[:23]:<24}{str(cond):<10}{'on' if pc else 'off':<7}{len(rs):>6}"
-              f"{tot / len(rs):>13.4f}{tot:>11.4f}")
+        print(f"  {str(dm)[:23]:<24}{str(bm)[:23]:<24}{str(cond):<10}{'on' if pc else 'off':<7}{fmt:<9}"
+              f"{'on' if rf else 'off':<9}{'on' if pf else 'off':<8}{len(rs):>6}"
+              f"{tot / len(rs):>13.4f}{tot:>11.4f}{sum(r['director_refusals'] for r in rs):>9}")
     grand = sum(r["total_cost"] for r in rows)
     print(f"\nAll {len(rows)} games: ${grand:.4f} (mean ${grand / len(rows):.4f} per game)")
     if show_cache:

@@ -410,6 +410,7 @@ def usage_from_response(resp, style):
                 "cache_creation_input_tokens": _int(_get(u, "cache_creation_input_tokens")),
                 "finish_reason": stop,
                 "stop_reason": stop,
+                "refused": stop == "refusal",
                 "refusal_category": _get(sd, "category") or _get(sd, "type"),
                 "refusal_explanation": _get(sd, "explanation") or _get(sd, "message")}
     if style == "gemini":
@@ -420,7 +421,7 @@ def usage_from_response(resp, style):
         return {"input_tokens": _int(_get(u, "prompt_token_count")),
                 "output_tokens": _int(_get(u, "candidates_token_count")),
                 "thinking_tokens": _int(_get(u, "thoughts_token_count")),
-                "finish_reason": fr, "stop_reason": fr,
+                "finish_reason": fr, "stop_reason": fr, "refused": blocked,
                 "refusal_category": fr if blocked else None, "refusal_explanation": None}
     u = _get(resp, "usage")
     choices = _get(resp, "choices") or []
@@ -430,7 +431,7 @@ def usage_from_response(resp, style):
             "output_tokens": _int(_get(u, "completion_tokens")),
             "cache_read_input_tokens": _int(_get(u, "prompt_tokens_details", "cached_tokens")),
             "thinking_tokens": _int(_get(u, "completion_tokens_details", "reasoning_tokens")),
-            "finish_reason": fr, "stop_reason": fr,
+            "finish_reason": fr, "stop_reason": fr, "refused": fr == "content_filter" or bool(refusal),
             "refusal_category": "content_filter" if fr == "content_filter" else ("refusal" if refusal else None),
             "refusal_explanation": refusal}
 
@@ -770,8 +771,9 @@ def summarize_token_records(records, keys):
     groups = {}
     for r in records:
         g = " | ".join(str(r.get(k)) for k in keys) if keys else "all"
-        b = groups.setdefault(g, {"calls": 0, "errors": 0, "calls_without_usage": 0})
+        b = groups.setdefault(g, {"calls": 0, "errors": 0, "calls_without_usage": 0, "refusals": 0})
         b["calls"] += 1
+        b["refusals"] += int(bool(r.get("refused")))
         b["errors"] += int("error" in r)
         b["calls_without_usage"] += int(r.get("input_tokens") is None and "error" not in r)
         for f in _TOKEN_FIELDS:
@@ -1629,7 +1631,8 @@ def run_single_game(
     game_results['token_usage'] = token_usage_block(TOKEN_LEDGER.records[game_token_start:])
     _gt = game_results['token_usage']['by_role']
     print("  [tokens] this game: " + ", ".join(
-        f"{role} {b.get('input_tokens', 0)} in / {b.get('output_tokens', 0)} out ({b['calls']} calls)"
+        f"{role} {b.get('input_tokens', 0)} in / {b.get('output_tokens', 0)} out ({b['calls']} calls"
+        + (f", {b['refusals']} REFUSED" if b.get('refusals') else "") + ")"
         for role, b in sorted(_gt.items())))
     if parse_counts['turns_with_retry'] or parse_counts['unparsed_after_retries'] or parse_counts['api_errors']:
         print(f"  [builder] parse retries this game: {parse_counts['retries_total']} over "
@@ -2165,7 +2168,8 @@ if __name__ == "__main__":
                   f"output={b.get('output_tokens', 0):<10}"
                   + (f" (corrected: {b.get('input_tokens_corrected', 0)} / {b.get('output_tokens_corrected', 0)})"
                      if 'input_tokens_corrected' in b else "")
-                  + (f" calls_without_usage={b['calls_without_usage']}" if b['calls_without_usage'] else ""))
+                  + (f" calls_without_usage={b['calls_without_usage']}" if b['calls_without_usage'] else "")
+                  + (f" REFUSALS={b['refusals']}" if b.get('refusals') else ""))
         if args.prompt_cache:
             for role, b in sorted(usage["by_role"].items()):
                 rd = b.get("cache_read_input_tokens", 0); wr = b.get("cache_creation_input_tokens", 0)
