@@ -1159,7 +1159,7 @@ OPTIONAL_POLICY_MODULES = ("pipeline_cache",)
 # before that import, so one config.py serves pooled/unpooled and any
 # FEATURE_MODE/FEATURE_TIER without hand edits. (USE_POOLED_HISTORY only takes
 # effect if config.py reads it from the environment; see the error below.)
-LAYOUT_ENV_KEYS = ("FEATURE_MODE", "FEATURE_TIER", "USE_POOLED_HISTORY")
+LAYOUT_ENV_KEYS = ("FEATURE_MODE", "FEATURE_TIER", "USE_POOLED_HISTORY", "PLACE_FEATURES")
 
 
 def find_policy_code_dir(policy_path: Path, given: Optional[Path]) -> Path:

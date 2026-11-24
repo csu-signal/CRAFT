@@ -656,6 +656,21 @@ def main() -> None:
     ap.add_argument("--use-oracle", action="store_true",
                     help="Pass CRAFT oracle_moves into the prompt (matches the oracle prompt variant).")
     ap.add_argument("--skip-preflight", action="store_true")
+    ap.add_argument("--flout-gate", choices=["off", "annotate", "defer"], default="off",
+                    help="Public Gricean-flout flags (instruction_parser.py). 'annotate': compute and record them "
+                         "for both arms and report the replayed gate. 'defer': also skip turns where the policy's "
+                         "director is flagged and history's is not -- the gated policy follows history there "
+                         "(delta 0), so no Builder calls are made for those turns.")
+    ap.add_argument("--flout-features",
+                    default="c_matches_builder_failed,pos_repeats_failed,c_repeat_own_prev,"
+                            "c_remove_absent_on_wall,c_multi_instruction",
+                    help="comma-separated instruction_parser features; a director is flagged if any is 1")
+    ap.add_argument("--frames", type=Path, default=None,
+                    help="frames.json from position_check.py (used by pos_ features)")
+    ap.add_argument("--parser-dir", type=Path, default=None,
+                    help="directory containing instruction_parser.py, if not importable already")
+    ap.add_argument("--flout-history", type=int, default=3,
+                    help="previous turns used for the repetition / failed-move features")
     args = ap.parse_args()
 
     run_cf = args.arms in ("both", "counterfactual")
@@ -702,6 +717,35 @@ def main() -> None:
         turns = turns[: args.limit]
 
     craft_index = build_craft_index(args.dataset)
+
+    flout_flags = None
+    if args.flout_gate != "off":
+        if args.parser_dir:
+            sys.path.insert(0, str(args.parser_dir.resolve()))
+        import instruction_parser as ip
+        flout_feats = [f.strip() for f in args.flout_features.split(",") if f.strip()]
+        flout_frame = ip.load_frames(args.frames) if args.frames else None
+        dirs_all = ("D1", "D2", "D3")
+
+        def flout_flags(director: str, row: Dict, hist: List[Dict]) -> Dict[str, int]:
+            """Public flags for `director`'s message on this CRAFT turn, from the
+            turn's messages, its board, and the previous turns' rows only."""
+            board = ip.board_from_json(row.get("structure_before"))
+            T = ip.parse(ip.clean_msg(row.get(f"{director}_message")), director, board, flout_frame)
+            others_T = [ip.parse(ip.clean_msg(row.get(f"{o}_message")), o, board, flout_frame)
+                        for o in dirs_all if o != director]
+            own_prev_T = [t for h in hist[-2:]
+                          for t in ip.parse(ip.clean_msg(h.get(f"{director}_message")), director,
+                                            ip.board_from_json(h.get("structure_before")), flout_frame)]
+            acts, failed, failed_cells = ip.builder_from_rows(hist)
+            f = ip.color_features(T, others_T, own_prev_T, acts, failed, board, director)
+            f.update(ip.position_features(T, others_T, own_prev_T, failed_cells, board))
+            missing = [k for k in flout_feats if k not in f]
+            if missing:
+                sys.exit(f"[flout] unknown features {missing}; available: {sorted(f)}")
+            return {k: int(f[k]) for k in flout_feats}
+
+        print(f"[flout] mode={args.flout_gate}  features={flout_feats}  frames={args.frames}")
 
     agent = LocalBuilderAgent(
         model_name=args.model,
@@ -787,6 +831,19 @@ def main() -> None:
         oracle_moves = json.loads(row["oracle_moves"]) if args.use_oracle else None
         director_label = director_label_from_combo(cf_msg["modelCombo"])
 
+        flout = None
+        if flout_flags is not None:
+            hist = [h for k in range(args.flout_history, 0, -1)
+                    for h in [craft_index.get((turn_index - k, structure_id, director_model))] if h is not None]
+            flout = {"cf": flout_flags(predicted, row, hist), "fa": flout_flags(historical, row, hist)}
+            flout["cf_flagged"] = any(flout["cf"].values())
+            flout["fa_flagged"] = any(flout["fa"].values())
+            flout["would_gate"] = flout["cf_flagged"] and not flout["fa_flagged"]
+            flout["gated"] = args.flout_gate == "defer" and flout["would_gate"]
+            stats["flout_cf_flagged"] += int(flout["cf_flagged"])
+            stats["flout_fa_flagged"] += int(flout["fa_flagged"])
+            stats["flout_would_gate"] += int(flout["would_gate"])
+
         record: Dict = {
             "turn": turn_index,
             "structure_id": row["structure_id"],
@@ -800,6 +857,14 @@ def main() -> None:
             "seed": args.seed,
             "shuffle_seed": None if args.no_shuffle else args.shuffle_seed,
         }
+        if flout is not None:
+            record["flout"] = flout
+            if flout["gated"]:
+                flagged = [k for k, v in flout["cf"].items() if v]
+                print(f"  [flout-gate] {predicted} flagged {flagged}; {historical} not -> follow history (delta 0)")
+                all_turns_counter[f"{cf_msg['modelCombo']}_{row['structure_id']}"].append(record)
+                stats["flout_gated"] += 1
+                continue
 
         if run_cf:
             record["counterfactual"] = run_arm(
@@ -932,6 +997,42 @@ def main() -> None:
         "sec_per_turn": round(elapsed / max(processed, 1), 2),
     }
     
+    if args.flout_gate != "off" and run_cf and run_fa:
+        recs = [r for rows_ in all_turns_counter.values() for r in rows_ if "flout" in r]
+        scored = [r for r in recs if "delta" in r]
+        gated = [r for r in recs if r["flout"]["gated"]]
+        would = [r for r in scored if r["flout"]["would_gate"]]
+
+        def gated_policy(rs, include_silent=True):
+            vals = [0.0 if r["flout"]["would_gate"] else r["delta"]["full"]
+                    for r in rs if include_silent or not r.get("silent_director")]
+            return vals + [0.0] * sum(1 for g in gated if include_silent or not g.get("silent_director"))
+
+        summary["flout_gate"] = {
+            "mode": args.flout_gate,
+            "features": args.flout_features.split(","),
+            "frames": str(args.frames) if args.frames else None,
+            "turns_with_flags": len(recs),
+            "cf_flagged": sum(r["flout"]["cf_flagged"] for r in recs),
+            "fa_flagged": sum(r["flout"]["fa_flagged"] for r in recs),
+            "gated_turns": len(gated) + len(would),
+            "feature_counts_cf": {k: sum(r["flout"]["cf"][k] for r in recs) for k in recs[0]["flout"]["cf"]} if recs else {},
+            "feature_counts_fa": {k: sum(r["flout"]["fa"][k] for r in recs) for k in recs[0]["flout"]["fa"]} if recs else {},
+            # annotate mode: the deltas the gate would have replaced with 0
+            "delta_on_would_gate_turns": pack([r["delta"]["full"] for r in would]),
+            # the policy with the gate: gated turns follow history (delta 0)
+            "policy_plus_gate_full_board": pack(gated_policy(scored)),
+            "policy_plus_gate_full_board_excluding_silent": pack(gated_policy(scored, include_silent=False)),
+        }
+        fg = summary["flout_gate"]
+        print(f"\n[flout] mode={fg['mode']}  CF flagged {fg['cf_flagged']}/{fg['turns_with_flags']}  "
+              f"FA flagged {fg['fa_flagged']}  gated {fg['gated_turns']}")
+        for name in ("delta_on_would_gate_turns", "policy_plus_gate_full_board",
+                     "policy_plus_gate_full_board_excluding_silent"):
+            b = fg[name]
+            if b["n"]:
+                print(f"  {name:<46} n={b['n']:<5} mean={b['mean']:+.5f}  sem={b['sem'] if b['sem'] is None else round(b['sem'], 5)}")
+
     if run_cf and run_fa:
         summary["paired_delta"] = {
             "full_board": pack(deltas_full),
