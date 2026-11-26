@@ -686,6 +686,13 @@ if __name__ == "__main__":
                         help="Override max output tokens for director (overrides per-model defaults)")
     parser.add_argument("--single_model_instance",  action="store_true",
                         help="Use a single instance of the model for directors and builder (all public)")
+    parser.add_argument("--drop_question",  type=int, default=None,
+                        help="Ablation: keep every question of --builderPrompt's add-in EXCEPT this one, "
+                             "e.g. 2 (same as --questions 1,3,4 for a 4-question add-in).")
+    parser.add_argument("--ablation",       type=str, default=None, choices=["single", "leave_one_out"],
+                        help="Run every ablation variant of --builderPrompt in turn, each as its own run with "
+                             "the same other options: 'single' = each question alone, 'leave_one_out' = all "
+                             "questions but one.")
     parser.add_argument("--questions",      type=str, default=None,
                         help="Ablation: keep only these numbered questions of --builderPrompt's add-in, "
                              "e.g. '2' (question 2 alone) or '1,3,4' (leave question 2 out). Default: all")
@@ -706,6 +713,45 @@ if __name__ == "__main__":
     USE_TOOLS     = not args.no_tools
     SINGLE_MODEL = args.single_model_instance
     import agents.builder_agent as _builder_module
+    n_questions = len([ln for ln in _builder_module.pragmatic_addIns[BUILDER_PROMPT].split("\n")
+                       if re.match(r"\s*\d+\.\s", ln)])
+    if sum(x is not None for x in (args.questions, args.drop_question, args.ablation)) > 1:
+        raise SystemExit("Use only one of --questions, --drop_question and --ablation.")
+    if (args.drop_question is not None or args.ablation) and n_questions == 0:
+        raise SystemExit(f"--builderPrompt {BUILDER_PROMPT.value} has no numbered questions to ablate.")
+
+    if args.ablation:
+        # One separate run per variant, with every other option unchanged.
+        import subprocess
+        variants = ([[q] for q in range(1, n_questions + 1)] if args.ablation == "single"
+                    else [[q for q in range(1, n_questions + 1) if q != drop] for drop in range(1, n_questions + 1)])
+        base_argv, skip = [], False
+        for a in sys.argv[1:]:
+            if skip:
+                skip = False
+                continue
+            if a == "--ablation":
+                skip = True
+                continue
+            if a.startswith("--ablation="):
+                continue
+            base_argv.append(a)
+        failed = []
+        for qs in variants:
+            q_arg = ",".join(map(str, qs))
+            print(f"\n{'#' * 70}\n# ABLATION ({args.ablation}): {BUILDER_PROMPT.value} questions {q_arg}\n{'#' * 70}")
+            rc = subprocess.run([sys.executable, os.path.abspath(__file__)] + base_argv + ["--questions", q_arg]).returncode
+            if rc != 0:
+                failed.append(q_arg)
+        print(f"\nAblation ({args.ablation}) finished: {len(variants) - len(failed)}/{len(variants)} variants ran"
+              + (f"; FAILED: {failed}" if failed else "."))
+        sys.exit(1 if failed else 0)
+
+    if args.drop_question is not None:
+        if not 1 <= args.drop_question <= n_questions:
+            raise SystemExit(f"--drop_question {args.drop_question} out of range: this add-in has questions 1-{n_questions}")
+        args.questions = ",".join(str(q) for q in range(1, n_questions + 1) if q != args.drop_question)
+        print(f"[ablation] --drop_question {args.drop_question}: keeping questions {args.questions}")
     QUESTIONS = sorted({int(q) for q in args.questions.split(",")}) if args.questions else None
     if QUESTIONS:
         _builder_module.pragmatic_addIns[BUILDER_PROMPT] = ablate_prompt_questions(
