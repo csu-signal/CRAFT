@@ -82,16 +82,24 @@ Before deciding on a move, consider the following and make inferences based on c
 ''',
 }
 
+# BuilderAgent has prompt_addin, and its move calls use it.
+SUPPORTS_PROMPT_ADDIN = True
+
 class BuilderAgent:
     """Builder agent that uses API calls"""
     
-    def __init__(self, api_key=None, model_name="gpt-4o-mini", oracle_moves=None, single_instance=None):
+    def __init__(self, api_key=None, model_name="gpt-4o-mini", oracle_moves=None, single_instance=None, prompt_addin=BuilderType.Base):
         if single_instance == None:
             self.client = OpenAI(api_key=api_key) if api_key else OpenAI()
         else:
             self.client = single_instance
         self.model_name = model_name
         self.oracle_moves = oracle_moves
+        # The pragmatic/literal prompt add-in (BuilderType) used whenever a prompt
+        # function isn't given one explicitly. Set it once, e.g.
+        # builder_agent.prompt_addin = BuilderType.Pragmatic1. Previously the move
+        # calls never passed an add-in, so the Builder always got BuilderType.Base.
+        self.prompt_addin = prompt_addin
 
     def format_oracle_moves_for_prompt(self, moves):
         """
@@ -168,8 +176,10 @@ class BuilderAgent:
         return sections
 
     def create_builder_prompt(self, director_discussion, current_state, 
-                          available_blocks, oracle_moves=None, builderPromptAddin = BuilderType.Base):  
+                          available_blocks, oracle_moves=None, builderPromptAddin = None):  
         """Create builder prompt with confirmation system"""
+        if builderPromptAddin is None:   # not given: use the agent's add-in
+            builderPromptAddin = getattr(self, "prompt_addin", None) or BuilderType.Base
         
 
         block_reference = get_block_encoding_reference()
@@ -390,7 +400,7 @@ BEFORE PLACING: Think step by step to make sure that you have interpreted the in
 
     def create_builder_prompt_with_tools(self, director_discussion, current_state,
                                      available_blocks, max_simulations=3,
-                                     oracle_moves=None, builderPromptAddin = BuilderType.Base):  
+                                     oracle_moves=None, builderPromptAddin = None):  
         """
         Thin wrapper: keep the base prompt exactly as-is, and append only tool policy.
         (No restatement of schemas / long contracts.)
@@ -525,7 +535,7 @@ WORKFLOW:
             
 
     def get_builder_prompt(self, director_discussion, current_state, available_blocks,
-                       use_tools=False, max_simulations=3, oracle_moves=None, builderPromptAddin = BuilderType.Base):  # ← add
+                       use_tools=False, max_simulations=3, oracle_moves=None, builderPromptAddin = None):  # ← add
         if use_tools:
                 return self.create_builder_prompt_with_tools(
                     director_discussion, current_state, available_blocks,

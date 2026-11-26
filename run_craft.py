@@ -72,6 +72,47 @@ def compare_views(label, a, b):
             print("  recomputed:", json.dumps(b[d]))
     return False
 
+# ── Pragmatic prompt ablation (--questions) ──────────────────
+import re
+
+def ablate_prompt_questions(text, keep):
+    """Keep only the numbered questions listed in `keep` (1-based, as numbered in
+    the add-in), renumbered 1..n in their original order. Every other line of the
+    add-in is unchanged."""
+    lines = text.split("\n")
+    q_lines = [i for i, ln in enumerate(lines) if re.match(r"\s*\d+\.\s", ln)]
+    if not q_lines:
+        raise ValueError("this --builderPrompt has no numbered questions to ablate")
+    bad = [k for k in keep if not 1 <= k <= len(q_lines)]
+    if bad:
+        raise ValueError(f"--questions {bad} out of range: this add-in has questions 1-{len(q_lines)}")
+    out, new_num = [], 0
+    for i, ln in enumerate(lines):
+        if i in q_lines:
+            if q_lines.index(i) + 1 not in keep:
+                continue
+            new_num += 1
+            ln = re.sub(r"^(\s*)\d+\.", lambda m: f"{m.group(1)}{new_num}.", ln, count=1)
+        out.append(ln)
+    return "\n".join(out)
+
+def use_selected_addin(builder_agent):
+    """The Builder's move calls (generate_move / generate_move_with_tools) build
+    their prompt without builderPromptAddin, which falls back to BuilderType.Base
+    (no add-in); only the logged builder_prompt used --builderPrompt. Fill in
+    --builderPrompt whenever a call doesn't pass one, so the Builder gets it."""
+    orig_create, orig_get = builder_agent.create_builder_prompt, builder_agent.get_builder_prompt
+    def create_with_addin(*args, **kwargs):
+        if "builderPromptAddin" not in kwargs and len(args) < 5:
+            kwargs["builderPromptAddin"] = BUILDER_PROMPT
+        return orig_create(*args, **kwargs)
+    def get_with_addin(*args, **kwargs):
+        if "builderPromptAddin" not in kwargs and len(args) < 7:
+            kwargs["builderPromptAddin"] = BUILDER_PROMPT
+        return orig_get(*args, **kwargs)
+    builder_agent.create_builder_prompt = create_with_addin
+    builder_agent.get_builder_prompt = get_with_addin
+
 def chair_history_only_directors(conversation_history: list[str], max_chars=2000) -> str:
     lines = [ln for ln in conversation_history if ln.startswith(("D1:", "D2:", "D3:"))]
     s = "\n".join(lines)
@@ -148,6 +189,9 @@ def run_craft_experiments(
         'run'            : run,
         'max_tokens'     : max_tokens,
         'partial_completion': lastPartType,
+        'builder_prompt' : BUILDER_PROMPT.value,
+        'builder_prompt_questions': QUESTIONS,       # None = all questions
+        'builder_prompt_addin': _builder_module.pragmatic_addIns[BUILDER_PROMPT],
             },
         'games': []
     }
@@ -215,6 +259,10 @@ def run_craft_experiments(
             model_name=single_model_name if SINGLE_MODEL else builder_model_name,
             single_instance =  single_client if SINGLE_MODEL else None 
             )
+        if getattr(_builder_module, "SUPPORTS_PROMPT_ADDIN", False):
+            builder_agent.prompt_addin = BUILDER_PROMPT    # every Builder call uses --builderPrompt
+        else:
+            use_selected_addin(builder_agent)              # older builder_agent.py without prompt_addin
         
         common_ground_agent = None
         if use_common_ground:
@@ -638,6 +686,9 @@ if __name__ == "__main__":
                         help="Override max output tokens for director (overrides per-model defaults)")
     parser.add_argument("--single_model_instance",  action="store_true",
                         help="Use a single instance of the model for directors and builder (all public)")
+    parser.add_argument("--questions",      type=str, default=None,
+                        help="Ablation: keep only these numbered questions of --builderPrompt's add-in, "
+                             "e.g. '2' (question 2 alone) or '1,3,4' (leave question 2 out). Default: all")
     args = parser.parse_args()
 
     api_key = os.getenv('OPENAI_API_KEY')
@@ -654,16 +705,24 @@ if __name__ == "__main__":
     ORACLE_N      = args.oracle_n
     USE_TOOLS     = not args.no_tools
     SINGLE_MODEL = args.single_model_instance
+    import agents.builder_agent as _builder_module
+    QUESTIONS = sorted({int(q) for q in args.questions.split(",")}) if args.questions else None
+    if QUESTIONS:
+        _builder_module.pragmatic_addIns[BUILDER_PROMPT] = ablate_prompt_questions(
+            _builder_module.pragmatic_addIns[BUILDER_PROMPT], QUESTIONS)
+        print(f"[ablation] {BUILDER_PROMPT.value}: keeping question(s) {QUESTIONS}. Add-in now:\n"
+              f"{_builder_module.pragmatic_addIns[BUILDER_PROMPT]}")
+    q_tag = f"_q{''.join(map(str, QUESTIONS))}" if QUESTIONS else ""
     # ── Auto-generate output dir from config ──────────────────
     oracle_tag = f"oracle{ORACLE_N}" if USE_ORACLE else "no_oracle"
     tools_tag  = "tools" if USE_TOOLS else "no_tools"
     run_tag    = f"run{RUN}"
     print(args)
 
-    OUTPUT_DIR = args.output or (
+    OUTPUT_DIR = (args.output + q_tag) if args.output else (
         f"craft_results/"
         f"{DIRECTOR_MODE}/"
-        f"{oracle_tag}_{tools_tag}_{run_tag}_{BUILDER_PROMPT}")
+        f"{oracle_tag}_{tools_tag}_{run_tag}_{BUILDER_PROMPT}{q_tag}")
 
     #LOCAL_MODELS = {
         #"mistral-7b":       "mistralai/Mistral-7B-Instruct-v0.3",
